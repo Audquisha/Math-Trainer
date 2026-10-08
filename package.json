@@ -1,0 +1,27 @@
+{
+  "name": "math-trainer",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "concurrently \"npm run dev --prefix server\" \"npm run dev --prefix client\"",
+    "build": "npm run build --prefix client",
+    "start": "npm start --prefix server"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Audquisha/Math-Trainer.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Audquisha/Math-Trainer/issues"
+  },
+  "homepage": "https://github.com/Audquisha/Math-Trainer#readme",
+  "devDependencies": {
+    "concurrently": "^10.0.6"
+  }
+}
