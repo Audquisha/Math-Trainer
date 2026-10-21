@@ -5,3 +5,5 @@ const PORT = process.env.PORT || 5000;
 connectDB()
   .then(() => app.listen(PORT, () => console.log(`API on ${PORT}`)))
   .catch((err) => { console.error(err); process.exit(1); });
+
+app.use('/api/auth/register', require('./routes/register'))
