@@ -2,24 +2,50 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
 
+const emptyForm = { user: '', pwd: '', firstName: '', lastName: '', role: '' }
+
 export default function Login() {
   const [isRegister, setIsRegister] = useState(false)
-  const [form, setForm] = useState({ username: '', pwd: '', firstname: '', lastname: '', role: '' })
+  const [form, setForm] = useState(emptyForm)
   const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
   const navigate = useNavigate()
 
   const update = (field) => (e) => setForm({ ...form, [field]: e.target.value })
 
-  const submit = async () => {
+  const toggleMode = () => {
+    setIsRegister(!isRegister)
     setError('')
-    const body = isRegister ? form : { username: form.username, pwd: form.pwd }
+    setSuccess('')
+  }
+
+  const register = async () => {
     try {
-      const { data } = await axios.post(`/api/auth/${isRegister ? 'register' : 'login'}`, body)
-      localStorage.setItem('token', data.token)
+      const { data } = await axios.post('/api/auth/register', form)
+      setForm({ ...emptyForm, user: form.user })
+      setIsRegister(false)
+      setSuccess(data.success || 'Account created. Please log in.')
+    } catch (err) {
+      if (err.response?.status === 409) setError('Username already taken')
+      else setError(err.response?.data?.message || 'Something went wrong')
+    }
+  }
+
+  // Backend login route not built yet: expected POST /api/auth/login { user, pwd }
+  const login = async () => {
+    try {
+      await axios.post('/api/auth/login', { user: form.user, pwd: form.pwd })
       navigate('/home')
     } catch (err) {
-      setError(err.response?.data?.error || 'Something went wrong with registration/login')
+      if (err.response?.status === 404) setError('Login is not available yet')
+      else setError(err.response?.data?.message || 'Invalid username or password')
     }
+  }
+
+  const submit = () => {
+    setError('')
+    setSuccess('')
+    isRegister ? register() : login()
   }
 
   return (
@@ -27,17 +53,16 @@ export default function Login() {
       <h1 style={{ fontSize: 32, lineHeight: 1.2, margin: '0 0 10px' }}>{isRegister ? 'Create account' : 'Login'}</h1>
       {isRegister && (
         <>
-          <input placeholder="First name" value={form.firstname} onChange={update('firstname')} />
-          <input placeholder="Last name" value={form.lastname} onChange={update('lastname')} />
+          <input placeholder="First name" value={form.firstName} onChange={update('firstName')} />
+          <input placeholder="Last name" value={form.lastName} onChange={update('lastName')} />
           <input placeholder="Role" value={form.role} onChange={update('role')} />
         </>
       )}
-      <input placeholder="Username" value={form.username} onChange={update('username')} />
+      <input placeholder="Username" value={form.user} onChange={update('user')} />
       <input type="password" placeholder="Password" value={form.pwd} onChange={update('pwd')} />
       <button onClick={submit}>{isRegister ? 'Register' : 'Log in'}</button>
-      <button onClick={() => { setIsRegister(!isRegister); setError('') }}>
-        {isRegister ? 'Back to login' : 'Create an account'}
-      </button>
+      <button onClick={toggleMode}>{isRegister ? 'Back to login' : 'Create an account'}</button>
+      {success && <p style={{ color: 'green' }}>{success}</p>}
       {error && <p style={{ color: 'red' }}>{error}</p>}
     </div>
   )
