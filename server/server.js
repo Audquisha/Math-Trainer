@@ -7,3 +7,4 @@ connectDB()
   .catch((err) => { console.error(err); process.exit(1); });
 
 app.use('/api/auth/register', require('./routes/register'))
+app.use('/api/auth/login', require('./routes/login'))
