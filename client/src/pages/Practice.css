@@ -1,0 +1,24 @@
+.practice { width: min(100%, 720px); margin: 0 auto; padding: 24px; box-sizing: border-box; }
+.practice-header, .question-meta { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.practice-header { font-weight: 600; }
+.practice h1 { font-size: clamp(28px, 5vw, 42px); line-height: 1.2; letter-spacing: -1px; }
+.practice-card { margin-top: 28px; padding: 28px; border: 1px solid var(--border); border-radius: 16px; display: grid; gap: 20px; }
+.practice button { border: 1px solid var(--accent-border); border-radius: 8px; padding: 12px 20px; font: inherit; font-weight: 600; background: var(--accent); color: #fff; cursor: pointer; }
+.practice button.secondary { background: var(--accent-bg); color: var(--text-h); }
+.practice button:disabled { opacity: 0.5; cursor: default; }
+.practice button:focus-visible { outline: 3px solid var(--text-h); outline-offset: 3px; }
+.practice button[aria-pressed="true"] { outline: 3px solid var(--text-h); outline-offset: 3px; }
+.practice .question-prompt { font-size: clamp(32px, 7vw, 48px); margin: 16px 0; }
+.answer-choices { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+.answer-choices button { font-size: 26px; min-height: 72px; }
+.accuracy { font-size: 32px; font-weight: 600; color: var(--text-h); }
+.results { text-align: left; padding-left: 24px; margin: 0; }
+.results li { padding: 12px 0; border-bottom: 1px solid var(--border); }
+.results span { display: block; }
+.practice-hint { font-size: 14px; }
+.practice-error { margin-top: 20px; display: grid; gap: 12px; }
+@media (max-width: 480px) {
+  .practice { padding: 16px; }
+  .practice-card { padding: 18px; }
+  .question-meta { font-size: 14px; }
+}

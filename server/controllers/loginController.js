@@ -11,12 +11,12 @@ const handleLogin = async (req, res) => {
     const match = await bcrypt.compare(pwd, foundUser.password)
     if (match) {
         const accessToken = jwt.sign(
-            { "UserInfo": {
+            { sub: foundUser._id.toString(), "UserInfo": {
                 "username": foundUser.username,
                 }
             },
             process.env.ACCESS_TOKEN_SECRET,
-            { expiresIn: '30s' }
+            { expiresIn: '1h' }
         )
         const refreshToken = jwt.sign(
             { "username": foundUser.username },
@@ -25,8 +25,7 @@ const handleLogin = async (req, res) => {
         )
         
         foundUser.refreshToken = refreshToken
-        const result = await foundUser.save()
-        console.log(result)
+        await foundUser.save()
         
         res.cookie('jwt', refreshToken, { httpOnly: true, sameSite: 'None', maxAge: 24 * 60 * 60 * 1000 })//secure: true
         res.json({ accessToken })

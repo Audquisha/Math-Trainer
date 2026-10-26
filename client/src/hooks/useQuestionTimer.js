@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { getQuestionDuration, startQuestionTimer } from '../utils/questionTimer'
 
 /** Call start(onExpire) when a question appears, and stop() when it is answered.
+ * Pass a local-clock deadline as start's second argument to resume saved time.
  * Changes to difficulty apply on the next start, which also restarts an active timer.
  */
 export default function useQuestionTimer(difficulty = 1) {
@@ -17,10 +18,11 @@ export default function useQuestionTimer(difficulty = 1) {
     setIsRunning(false)
   }, [])
 
-  const start = useCallback((onExpire = () => {}) => {
+  const start = useCallback((onExpire = () => {}, deadline) => {
     cancelRef.current()
     setIsRunning(true)
     cancelRef.current = startQuestionTimer(difficulty, {
+      deadline,
       onTick: setTimeLeft,
       onExpire: () => {
         setIsRunning(false)

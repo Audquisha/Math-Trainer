@@ -8,11 +8,15 @@ export function getQuestionDuration(difficulty = 1) {
 }
 
 /** Starts a countdown and returns a function that cancels it without expiring. */
-export function startQuestionTimer(difficulty = 1, { onTick, onExpire = () => {} }) {
+export function startQuestionTimer(difficulty = 1, { onTick, onExpire = () => {}, deadline: savedDeadline }) {
   const duration = getQuestionDuration(difficulty)
-  const deadline = Date.now() + duration * 1000
-  let previousSeconds = Math.ceil(duration)
+  const deadline = savedDeadline ?? Date.now() + duration * 1000
+  let previousSeconds = Math.max(0, Math.ceil((deadline - Date.now()) / 1000))
   onTick(previousSeconds)
+  if (previousSeconds === 0) {
+    onExpire()
+    return () => {}
+  }
 
   const interval = setInterval(() => {
     // Use elapsed time so delayed browser callbacks do not extend the question.
