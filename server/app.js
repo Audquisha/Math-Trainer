@@ -10,4 +10,7 @@ app.get('/api/health', (req, res) =>
   res.json({ ok: true, db: mongoose.connection.readyState === 1 ? 'connected' : 'down' })
 );
 
+app.use('/api/auth/register', require('./routes/register'));
+app.use('/api/auth/login', require('./routes/login'));
+
 module.exports = app;
