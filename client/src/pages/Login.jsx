@@ -185,7 +185,6 @@ export default function Login() {
       } 
   }
 
-  // Backend login route not built yet: expected POST /api/auth/login { user, pwd }
   const login = async () => {
     try {
       {
@@ -232,7 +231,8 @@ export default function Login() {
         }))
       }
     }
-      await axios.post('/api/auth/login', { user: form.user, pwd: form.pwd })
+      const { data } = await axios.post('/api/auth/login', { user: form.user, pwd: form.pwd })
+      sessionStorage.setItem('accessToken', data.accessToken)
       navigate('/home')
     } catch (err) {
       if (err.response?.status === 404){
