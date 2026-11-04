@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react'
-import useQuestionTimer from '../hooks/useQuestionTimer'
-import Button from './ui/Button'
+import useQuestionTimer from '../../hooks/useQuestionTimer'
+import Button from '../ui/Button'
+import PracticeResults from './PracticeResults'
 
 function TimerBar({ timeLeft, total }) {
   const percent = Math.min(100, Math.max(0, (timeLeft / total) * 100))
@@ -67,15 +68,7 @@ export default function Practice({ practice, busy, onRequest, onClose }) {
       {practice.completed ? (
         <>
           <h2 className="text-2xl">Practice complete</h2>
-          <ol className="list-inside list-decimal">
-            {practice.results.map((result, index) => (
-              <li key={index}>
-                {result.factor1} × {result.factor2} = {result.correctAnswer}.{' '}
-                {result.timedOut ? 'Time expired.' : `Your answer: ${result.selectedAnswer}.`}{' '}
-                {result.isCorrect ? 'Correct.' : 'Incorrect.'}
-              </li>
-            ))}
-          </ol>
+          <PracticeResults results={practice.results} />
           <div>
             <Button disabled={busy} onClick={() => onRequest('/retry', { attemptNumber: practice.attemptNumber })}>
               Retry

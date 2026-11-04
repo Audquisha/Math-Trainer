@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { requestPractice } from '../api/practice'
-import Practice from '../components/Practice'
+import Practice from '../components/practice/Practice'
 import Button from '../components/ui/Button'
 
 export default function Home() {
@@ -55,8 +55,8 @@ export default function Home() {
     }
   }, [handleError])
 
-  const openPractice = async (retry = false) => {
-    const next = await updatePractice(retry ? '/retry' : '/start', retry ? { attemptNumber: practice.attemptNumber } : undefined)
+  const openPractice = async () => {
+    const next = await updatePractice('/start')
     if (next) setShowPractice(true)
   }
 
@@ -71,14 +71,8 @@ export default function Home() {
       )}
       {!practice && !error && <p>Loading practice...</p>}
       {practice && !showPractice && (
-        <div className="flex items-center justify-center gap-2.5">
-          <Button disabled={busy} onClick={() => openPractice()}>Practice</Button>
-          {practice.attemptNumber > 0 && (
-            <>
-              <span>Accuracy: {practice.accuracy}% ({practice.answeredCount}/3 answered)</span>
-              <Button disabled={busy} onClick={() => openPractice(true)}>Retry</Button>
-            </>
-          )}
+        <div className="flex justify-center">
+          <Button disabled={busy} onClick={openPractice}>Practice</Button>
         </div>
       )}
       {practice && showPractice && (
