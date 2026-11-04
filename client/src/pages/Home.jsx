@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { requestPractice } from '../api/practice'
 import Practice from '../components/Practice'
+import Button from '../components/ui/Button'
 
 export default function Home() {
   const [practice, setPractice] = useState(null)
@@ -60,22 +61,22 @@ export default function Home() {
   }
 
   return (
-    <main style={{ padding: 20 }}>
-      <h1>Math practice</h1>
+    <main className="mx-auto max-w-[1126px] p-5 text-center">
+      <h1 className="my-8 text-[56px] tracking-[-1.68px] max-lg:my-5 max-lg:text-4xl">Math practice</h1>
       {error && (
-        <div role="alert">
+        <div role="alert" className="mb-4 flex flex-col items-center gap-2 text-danger">
           <p>{error}</p>
-          <button disabled={busy} onClick={() => updatePractice('')}>Reload practice</button>
+          <Button disabled={busy} onClick={() => updatePractice('')}>Reload practice</Button>
         </div>
       )}
       {!practice && !error && <p>Loading practice...</p>}
       {practice && !showPractice && (
-        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 10 }}>
-          <button disabled={busy} onClick={() => openPractice()}>Practice</button>
+        <div className="flex items-center justify-center gap-2.5">
+          <Button disabled={busy} onClick={() => openPractice()}>Practice</Button>
           {practice.attemptNumber > 0 && (
             <>
               <span>Accuracy: {practice.accuracy}% ({practice.answeredCount}/3 answered)</span>
-              <button disabled={busy} onClick={() => openPractice(true)}>Retry</button>
+              <Button disabled={busy} onClick={() => openPractice(true)}>Retry</Button>
             </>
           )}
         </div>
