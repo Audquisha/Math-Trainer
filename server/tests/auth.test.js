@@ -59,6 +59,29 @@ describe('POST /api/auth/register', () => {
     }
   );
 
+test.each(['admin', 'Student', 'teacher ', ['student'], 123])(
+  'rejects invalid role %p',
+  async (role) => {
+    const res = await request(app).post('/api/auth/register').send({ ...validUser, role });
+    expect(res.status).toBe(400);
+    expect(res.body.message).toBe('Role must be either student or teacher');
+    expect(User.findOne).not.toHaveBeenCalled();
+    expect(User.create).not.toHaveBeenCalled();
+  }
+);
+
+test('201 – accepts the teacher role', async () => {
+  mockFindOne(null);
+  User.create.mockResolvedValue({ username: 'chris' });
+
+  const res = await request(app)
+    .post('/api/auth/register')
+    .send({ ...validUser, role: 'teacher' });
+
+  expect(res.status).toBe(201);
+  expect(User.create).toHaveBeenCalledWith(expect.objectContaining({ role: 'teacher' }));
+});
+
   test('409 – rejects a duplicate username', async () => {
     mockFindOne({ username: 'chris' });
 
