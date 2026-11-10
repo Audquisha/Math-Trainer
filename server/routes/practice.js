@@ -8,6 +8,9 @@ const {
 
 const router = express.Router();
 
+const latestPractice = (username) =>
+  Practice.findOne({ username }).sort({ attemptNumber: -1 });
+
 router.use((req, res, next) => {
   const token = req.get('Authorization')?.match(/^Bearer (\S+)$/)?.[1];
   try {
@@ -23,13 +26,13 @@ router.use((req, res, next) => {
 });
 
 router.get('/', async (req, res) => {
-  const practice = await Practice.findOne({ username: req.practiceUsername });
+  const practice = await latestPractice(req.practiceUsername);
   if (practice && expireQuestion(practice, Date.now())) await practice.save();
   res.json(practiceResponse(practice));
 });
 
 router.post('/start', async (req, res) => {
-  let practice = await Practice.findOne({ username: req.practiceUsername });
+  let practice = await latestPractice(req.practiceUsername);
   const now = Date.now();
   if (!practice) {
     practice = new Practice({
@@ -52,18 +55,19 @@ router.post('/retry', async (req, res) => {
   if (!Number.isInteger(req.body?.attemptNumber) || req.body.attemptNumber < 1) {
     return res.status(400).json({ message: 'An attempt number is required.' });
   }
-  const practice = await Practice.findOne({ username: req.practiceUsername });
-  if (!practice) return res.status(404).json({ message: 'Start a practice first.' });
-  if (practice.attemptNumber !== req.body.attemptNumber) {
+  const latest =  await latestPractice(req.practiceUsername);
+  if (!latest) return res.status(404).json({ message: 'Start a practice first.' });
+  if (latest.attemptNumber !== req.body.attemptNumber) {
     return res.status(409).json({ message: 'This practice has already been retried.' });
   }
 
   const now = Date.now();
-  practice.attemptNumber += 1;
-  practice.accuracy = 0;
-  practice.timeStarted = new Date(now);
-  practice.completedAt = null;
-  practice.questions = generateQuestions();
+  const practice = new Practice({
+    username: req.practiceUsername,
+    attemptNumber: latest.attemptNumber + 1,
+    timeStarted: new Date(now),
+    questions: generateQuestions(),
+  });
   startQuestion(practice, now);
   await practice.save();
   res.json(practiceResponse(practice));
@@ -76,7 +80,7 @@ router.post('/answer', async (req, res) => {
     return res.status(400).json({ message: 'An attempt, question, and answer choice are required.' });
   }
 
-  const practice = await Practice.findOne({ username: req.practiceUsername });
+  const practice = await latestPractice(req.practiceUsername);
   if (!practice) return res.status(404).json({ message: 'Start a practice first.' });
   const question = currentQuestion(practice);
   if (practice.attemptNumber !== attemptNumber || question?._id.toString() !== questionId || !question?.timeStarted) {
