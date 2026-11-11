@@ -1,11 +1,16 @@
 const { v4: uuidv4 } = require('uuid');
 const User = require('../model/User')
 const bcrypt = require('bcrypt')
+const ALLOWED_ROLES = ['student', 'teacher']
+
 
 const handleNewUser = async (req, res) => {
     const {user, pwd, firstName, lastName, role} = req.body;
     if (!user || !pwd || !firstName || !lastName || !role) return res.status(400).json({'message': 'One of the required fields missing'});
 
+    if (typeof role !== 'string' || !ALLOWED_ROLES.includes(role)) {
+        return res.status(400).json({ 'message': 'Role must be either student or teacher' });
+    }
     const duplicate = await User.findOne({username: user}).exec();
     if (duplicate) return res.sendStatus(409);
 

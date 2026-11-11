@@ -19,6 +19,7 @@ export default function TopBar() {
         <nav aria-label="Main" className="flex items-center">
           <NavLink to="/home" className={navLinkClass}>Home</NavLink>
           <NavLink to="/sessions" className={navLinkClass}>Session</NavLink>
+          <NavLink to="/profile" className={navLinkClass}>Profile</NavLink>
         </nav>
         <Button onClick={logout}>Log out</Button>
       </div>
