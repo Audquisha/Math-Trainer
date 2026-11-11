@@ -1,8 +1,9 @@
 const mongoose = require('mongoose');
 
 const questionSchema = new mongoose.Schema({
-  factor1: { type: Number, required: true, min: 0, max: 12 },
-  factor2: { type: Number, required: true, min: 0, max: 12 },
+  prompt: { type: String, default: null },
+  factor1: { type: Number, default: null },
+  factor2: { type: Number, default: null },
   choices: {
     type: [Number],
     required: true,

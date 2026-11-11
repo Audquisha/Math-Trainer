@@ -49,7 +49,7 @@ function Question({ question, attemptNumber, busy, onRequest }) {
     <section aria-label={`Question ${question.number}`} className="flex flex-col gap-3">
       <p>Question {question.number} of 3</p>
       <TimerBar timeLeft={timeLeft} total={question.timeAvailable} />
-      <h2 className="text-2xl">{question.factor1} × {question.factor2} = ?</h2>
+      <h2 className="text-2xl">{question.prompt}</h2>
       <div className="flex justify-center gap-2.5">
         {question.choices.map((choice) => (
           <Button key={choice} disabled={busy || timeLeft === 0} onClick={() => answer(choice)}>

@@ -27,6 +27,16 @@ const userSchema = new Schema({
     password: {
         type: String,
         required: [true, 'Username required']
+    },
+    rank: {
+        type: Number,
+        default: 0,
+        min: 0,
+        max: 6
+    },
+    refreshToken: {
+        type: String,
+        default: null
     }
 })
 

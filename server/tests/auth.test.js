@@ -98,7 +98,34 @@ test('201 – accepts the teacher role', async () => {
     const res = await request(app).post('/api/auth/register').send(validUser);
 
     expect(res.status).toBe(500);
-    expect(res.body.message).toBe('DB down');
+    expect(res.body.message).toBe('Unable to create the account. Please try again.');
+  });
+
+  test('409 – a duplicate key from a registration race is reported as a conflict', async () => {
+    mockFindOne(null);
+    User.create.mockRejectedValue(Object.assign(new Error('E11000 duplicate key'), { code: 11000 }));
+
+    const res = await request(app).post('/api/auth/register').send(validUser);
+
+    expect(res.status).toBe(409);
+  });
+
+  test.each([
+    ['a query operator as username', { user: { $ne: null } }],
+    ['a short username', { user: 'ab' }],
+    ['an oversized username', { user: 'x'.repeat(31) }],
+    ['a username with unsafe characters', { user: '<script>' }],
+    ['a short password', { pwd: 'short' }],
+    ['a non-string password', { pwd: 12345678 }],
+    ['an oversized password', { pwd: 'p'.repeat(73) }],
+    ['a blank first name', { firstName: '   ' }],
+    ['an oversized last name', { lastName: 'x'.repeat(51) }],
+  ])('400 – rejects %s', async (_, override) => {
+    const res = await request(app).post('/api/auth/register').send({ ...validUser, ...override });
+
+    expect(res.status).toBe(400);
+    expect(User.findOne).not.toHaveBeenCalled();
+    expect(User.create).not.toHaveBeenCalled();
   });
 });
 
@@ -106,6 +133,27 @@ describe('POST /api/auth/login', () => {
   test('400 – rejects missing credentials', async () => {
     const res = await request(app).post('/api/auth/login').send({ user: 'chris' });
     expect(res.status).toBe(400);
+  });
+
+  test.each([
+    [{ user: { $ne: null }, pwd: 'Passw0rd!' }],
+    [{ user: 'chris', pwd: { $ne: null } }],
+    [{ user: 'chris', pwd: 12345678 }],
+  ])('400 – rejects non-string credentials %j', async (body) => {
+    const res = await request(app).post('/api/auth/login').send(body);
+    expect(res.status).toBe(400);
+    expect(User.findOne).not.toHaveBeenCalled();
+  });
+
+  test('errors are returned as JSON without stack traces', async () => {
+    const malformed = await request(app).post('/api/auth/login').set('Content-Type', 'application/json').send('{bad');
+    expect(malformed.status).toBe(400);
+    expect(malformed.body).toEqual({ message: 'Invalid request.' });
+
+    User.findOne.mockReturnValue({ exec: jest.fn().mockRejectedValue(new Error('secret detail')) });
+    const failed = await request(app).post('/api/auth/login').send({ user: 'chris', pwd: 'Passw0rd!' });
+    expect(failed.status).toBe(500);
+    expect(failed.body).toEqual({ message: 'Something went wrong. Please try again.' });
   });
 
   test('401 – rejects an unknown username', async () => {

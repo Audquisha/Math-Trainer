@@ -3,8 +3,8 @@ export default function PracticeResults({ results }) {
     <ol className="list-inside list-decimal">
       {results.map((result, index) => (
         <li key={index}>
-          {result.factor1} × {result.factor2} = {result.correctAnswer}.{' '}
-          {result.timedOut ? 'Time expired.' : `Your answer: ${result.selectedAnswer}.`}{' '}
+          {result.prompt} Answer: {result.correctAnswer}.{' '}
+          {result.timedOut ? 'Time expired.' : result.selectedAnswer === null ? 'Not answered.' : `Your answer: ${result.selectedAnswer}.`}{' '}
           {result.isCorrect ? 'Correct.' : 'Incorrect.'}
         </li>
       ))}

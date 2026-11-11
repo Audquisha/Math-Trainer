@@ -30,6 +30,7 @@ router.get('/', async (req, res) => {
         lastName: user.lastName,
         username: user.username,
         role: user.role,
+        rank: user.rank ?? 0,
     
     });
     

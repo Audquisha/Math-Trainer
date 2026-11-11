@@ -1,16 +1,25 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
 const Practice = require('../model/Practice');
+const User = require('../model/User');
 const {
-  generateQuestions, currentQuestion, questionDeadline,
-  finishQuestion, expireQuestion, startQuestion, practiceResponse,
+  generateQuestions, questionPrompt, currentQuestion, questionDeadline,
+  finishQuestion, forfeitPractice, expireQuestion, startQuestion, practiceResponse,
 } = require('../utils/practice');
+const { PASS_ACCURACY, rankFromPasses, updateRank } = require('../utils/rank');
 
 const router = express.Router();
 
 const latestPractice = (username) => Practice.findOne({ username }).sort({ attemptNumber: -1 });
 
 const completed = (username) => ({ username, completedAt: { $ne: null } });
+
+const userRank = async (username) => (await User.findOne({ username }).select('rank').lean())?.rank ?? 0;
+
+const savePractice = async (practice) => {
+  await practice.save();
+  if (practice.completedAt) await updateRank(practice.username);
+};
 
 router.use((req, res, next) => {
   const token = req.get('Authorization')?.match(/^Bearer (\S+)$/)?.[1];
@@ -28,7 +37,7 @@ router.use((req, res, next) => {
 
 router.get('/', async (req, res) => {
   const practice = await latestPractice(req.practiceUsername);
-  if (practice && expireQuestion(practice, Date.now())) await practice.save();
+  if (practice && expireQuestion(practice, Date.now())) await savePractice(practice);
   res.json(practiceResponse(practice));
 });
 
@@ -40,14 +49,14 @@ router.post('/start', async (req, res) => {
       username: req.practiceUsername,
       attemptNumber: 1,
       timeStarted: new Date(now),
-      questions: generateQuestions(),
+      questions: generateQuestions(await userRank(req.practiceUsername)),
     });
     startQuestion(practice, now);
     await practice.save();
   } else {
     const expired = expireQuestion(practice, now);
     const started = startQuestion(practice, now);
-    if (expired || started) await practice.save();
+    if (expired || started) await savePractice(practice);
   }
   res.json(practiceResponse(practice));
 });
@@ -63,11 +72,15 @@ router.post('/retry', async (req, res) => {
   }
 
   const now = Date.now();
+  if (!latest.completedAt) {
+    forfeitPractice(latest, now);
+    await savePractice(latest);
+  }
   const practice = new Practice({
     username: req.practiceUsername,
     attemptNumber: latest.attemptNumber + 1,
     timeStarted: new Date(now),
-    questions: generateQuestions(),
+    questions: generateQuestions(await userRank(req.practiceUsername)),
   });
   startQuestion(practice, now);
   await practice.save();
@@ -77,7 +90,7 @@ router.post('/retry', async (req, res) => {
 router.post('/answer', async (req, res) => {
   const { attemptNumber, questionId, selectedAnswer } = req.body ?? {};
   if (!Number.isInteger(attemptNumber) || attemptNumber < 1 || typeof questionId !== 'string'
-      || !(selectedAnswer === null || Number.isInteger(selectedAnswer))) {
+      || !(selectedAnswer === null || Number.isFinite(selectedAnswer))) {
     return res.status(400).json({ message: 'An attempt, question, and answer choice are required.' });
   }
 
@@ -97,7 +110,7 @@ router.post('/answer', async (req, res) => {
   }
   finishQuestion(practice, question, selectedAnswer, now);
   startQuestion(practice, now);
-  await practice.save();
+  await savePractice(practice);
   res.json(practiceResponse(practice));
 });
 
@@ -107,25 +120,48 @@ router.post('/answer', async (req, res) => {
 router.get('/history', async (req, res) => {
   const attempts = await Practice.find(completed(req.practiceUsername))
     .sort({ attemptNumber: -1 }).limit(50).lean();
+  let passes = attempts.length ? await Practice.countDocuments({
+    ...completed(req.practiceUsername),
+    accuracy: { $gte: PASS_ACCURACY },
+    attemptNumber: { $lt: attempts.at(-1).attemptNumber },
+  }) : 0;
+  const ranks = new Map();
+  for (const a of attempts.toReversed()) {
+    if (a.accuracy >= PASS_ACCURACY) passes++;
+    ranks.set(a.attemptNumber, rankFromPasses(passes));
+  }
   res.json(attempts.map(a => ({
     attemptNumber: a.attemptNumber,
+    rank: ranks.get(a.attemptNumber),
     accuracy: a.accuracy,
     completedAt: a.completedAt,
-    results: a.questions.map(({ factor1, factor2, selectedAnswer, correctAnswer, isCorrect, timedOut, elapsedSeconds }) =>
-      ({ factor1, factor2, selectedAnswer, correctAnswer, isCorrect, timedOut, elapsedSeconds })),
+    results: a.questions.map((question) => {
+      const { selectedAnswer, correctAnswer, isCorrect, timedOut, elapsedSeconds } = question;
+      return { prompt: questionPrompt(question), selectedAnswer, correctAnswer, isCorrect, timedOut, elapsedSeconds };
+    }),
   })));
 });
 
 router.get('/stats', async (req, res) => {
-  const attempts = await Practice.find(completed(req.practiceUsername)).lean();
-  const qs = attempts.flatMap(a => a.questions);
-  const avg = (xs) => xs.length ? xs.reduce((s, x) => s + x, 0) / xs.length : null;
+  const [stats] = await Practice.aggregate([
+    { $match: completed(req.practiceUsername) },
+    { $group: {
+      _id: null,
+      attempts: { $sum: 1 },
+      averageAccuracy: { $avg: '$accuracy' },
+      bestAccuracy: { $max: '$accuracy' },
+      seconds: { $sum: { $sum: '$questions.elapsedSeconds' } },
+      timed: { $sum: { $size: { $filter: { input: '$questions', cond: { $isNumber: '$$this.elapsedSeconds' } } } } },
+      questions: { $sum: { $size: '$questions' } },
+      timeouts: { $sum: { $size: { $filter: { input: '$questions', cond: '$$this.timedOut' } } } },
+    } },
+  ]);
   res.json({
-    attempts: attempts.length,
-    averageAccuracy: avg(attempts.map(a => a.accuracy)),
-    bestAccuracy: attempts.length ? Math.max(...attempts.map(a => a.accuracy)) : null,
-    averageSecondsPerQuestion: avg(qs.map(q => q.elapsedSeconds)),
-    timeoutRate: qs.length ? qs.filter(q => q.timedOut).length / qs.length : null,
+    attempts: stats?.attempts ?? 0,
+    averageAccuracy: stats?.averageAccuracy ?? null,
+    bestAccuracy: stats?.bestAccuracy ?? null,
+    averageSecondsPerQuestion: stats?.timed ? stats.seconds / stats.timed : null,
+    timeoutRate: stats?.questions ? stats.timeouts / stats.questions : null,
   });
 });
 
