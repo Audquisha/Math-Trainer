@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Button from '../components/ui/Button'
 import { requestProfile } from '../api/profile'
-
+import { requestPractice } from '../api/practice'
 
 
 
@@ -11,6 +11,8 @@ export default function Profile() {
   const [profile, setProfile] = useState(null);
   const [error, setError] = useState('');
   const navigate = useNavigate();
+  const [history, setHistory] = useState(null);
+  const [stats, setStats] = useState(null);
 
   useEffect(() => {
     if (!sessionStorage.getItem('accessToken')) {
@@ -18,8 +20,16 @@ export default function Profile() {
       return;
     }
     const controller = new AbortController();
-    requestProfile('get', '', undefined, controller.signal)
-        .then(setProfile)
+    Promise.all([
+      requestProfile('get', '', undefined, controller.signal),
+      requestPractice('get', '/history', undefined, controller.signal),
+      requestPractice('get', '/stats', undefined, controller.signal),
+    ])
+        .then(([profileData, historyData, statsData]) => {
+          setProfile(profileData);
+          setHistory(historyData);
+          setStats(statsData);
+      })
         .catch((err) =>{
             if (err.response?.status === 401) {
             sessionStorage.removeItem('accessToken')
@@ -46,7 +56,8 @@ export default function Profile() {
 
             </dl>
 
-          )}
+    )}
+    
       
     </main>
   )

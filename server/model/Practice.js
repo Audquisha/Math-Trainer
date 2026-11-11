@@ -19,7 +19,7 @@ const questionSchema = new mongoose.Schema({
 });
 
 const practiceSchema = new mongoose.Schema({
-  username: { type: String, required: true, unique: true },
+  username: { type: String, required: true},
   attemptNumber: { type: Number, required: true, min: 1 },
   accuracy: { type: Number, default: 0, min: 0, max: 100 },
   timeStarted: { type: Date, required: true },
@@ -29,5 +29,6 @@ const practiceSchema = new mongoose.Schema({
     validate: questions => questions.length === 3,
   },
 }, { optimisticConcurrency: true });
+practiceSchema.index({ username: 1, attemptNumber: 1 }, { unique: true });
 
 module.exports = mongoose.model('Practice', practiceSchema);
