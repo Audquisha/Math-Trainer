@@ -11,6 +11,7 @@ const jwt = require('jsonwebtoken');
 const mongoose = require('mongoose');
 const app = require('../app');
 const Practice = require('../model/Practice');
+const User = require('../model/User');
 const { createQuestion, generateQuestions } = require('../utils/practice');
 const { getQuestionDuration } = require('../../client/src/utils/questionTimer.js');
 
@@ -18,6 +19,8 @@ let now;
 let records;
 let attempts;
 let save;
+let updateUser;
+let storedRank;
 
 function token(username = 'student') {
   return jwt.sign({ UserInfo: { username } }, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '1h' });
@@ -67,6 +70,13 @@ beforeEach(() => {
     return query;
   });
   
+  jest.spyOn(Practice, 'countDocuments').mockImplementation(async ({ username, accuracy, attemptNumber }) =>
+    attempts.filter(a => a.username === username && a.completedAt !== null && a.accuracy >= accuracy.$gte
+      && (!attemptNumber || a.attemptNumber < attemptNumber.$lt)).length);
+  updateUser = jest.spyOn(User, 'updateOne').mockResolvedValue({});
+  storedRank = 0;
+  jest.spyOn(User, 'findOne').mockImplementation(() => ({ select: () => ({ lean: async () => ({ rank: storedRank }) }) }));
+
   save = jest.spyOn(Practice.prototype, 'save').mockImplementation(async function () {
     await this.validate();
     const doc = this.toObject();
@@ -88,46 +98,36 @@ afterEach(() => {
 });
 
 describe('question generation', () => {
-  test('every 0..12 factor pair has four unique, valid neighboring products, including zero and boundary cases', () => {
-    for (let first = 0; first <= 12; first++) {
-      for (let second = 0; second <= 12; second++) {
-        const question = createQuestion(first, second, 10);
-        const products = new Set();
-        for (let a = Math.max(0, first - 2); a <= Math.min(12, first + 2); a++) {
-          for (let b = Math.max(0, second - 2); b <= Math.min(12, second + 2); b++) {
-            products.add(a * b);
-          }
-        }
-        expect(question.correctAnswer).toBe(first * second);
+  test.each([0, 1, 2, 3, 4, 5, 6])('rank %i draws three distinct questions with four unique choices', (rank) => {
+    const correctPositions = new Set();
+    for (let attempt = 0; attempt < 300; attempt++) {
+      const questions = generateQuestions(rank);
+      expect(questions).toHaveLength(3);
+      expect(new Set(questions.map(q => q.prompt)).size).toBe(3);
+      for (const question of questions) {
+        expect(question.prompt).toContain('?');
+        expect(question.timeAvailable).toBe(10);
         expect(question.choices).toHaveLength(4);
         expect(new Set(question.choices).size).toBe(4);
-        expect(question.choices.filter(choice => choice === first * second)).toHaveLength(1);
-        expect(question.choices.every(choice => products.has(choice))).toBe(true);
-      }
-    }
-  });
-
-  test('draws three distinct questions and varies the position of the correct answer', () => {
-    let seed = 12345;
-    jest.spyOn(Math, 'random').mockImplementation(() => {
-      seed = (1664525 * seed + 1013904223) >>> 0;
-      return seed / 4294967296;
-    });
-    const correctPositions = new Set();
-    const factorPairs = new Set();
-    for (let attempt = 0; attempt < 50; attempt++) {
-      const questions = generateQuestions();
-      expect(questions).toHaveLength(3);
-      expect(new Set(questions.map(q => `${q.factor1},${q.factor2}`)).size).toBe(3);
-      for (const question of questions) {
-        expect(question.timeAvailable).toBe(10);
+        expect(question.choices.every(Number.isFinite)).toBe(true);
+        expect(question.choices.filter(choice => choice === question.correctAnswer)).toHaveLength(1);
+        if (rank < 6) expect(Math.min(...question.choices)).toBeGreaterThanOrEqual(0);
         correctPositions.add(question.choices.indexOf(question.correctAnswer));
-        factorPairs.add(`${question.factor1},${question.factor2}`);
       }
     }
     expect(getQuestionDuration).toHaveBeenCalledWith(1);
     expect(correctPositions.size).toBe(4);
-    expect(factorPairs.size).toBeGreaterThan(3);
+  });
+
+  test('question difficulty follows the rank and falls back to Kindergarten for invalid ranks', () => {
+    const answers = (rank) => Array.from({ length: 200 }, () => generateQuestions(rank)).flat().map(q => q.correctAnswer);
+    expect(Math.max(...answers(0))).toBeLessThanOrEqual(100);
+    expect(Math.max(...answers(4))).toBeGreaterThan(100);
+    expect(Math.min(...answers(6))).toBeLessThan(0);
+    for (const rank of [undefined, null, -1, 2.5, '3']) {
+      expect(Math.max(...answers(rank))).toBeLessThanOrEqual(100);
+    }
+    expect(createQuestion(['0 + 0 = ?', 0], 10).choices.sort()).toEqual([0, 1, 2, 3]);
   });
 });
 
@@ -135,6 +135,36 @@ describe('practice API', () => {
   //history tests cause they wer previously deleted
   test('history is empty for a new user', async () => {
     expect((await api('get', '/history')).body).toEqual([]);
+  });
+
+  test('stores the rank on the user when attempts complete and raises it every three perfect attempts', async () => {
+    let practice = (await api('post', '/start')).body;
+    expect(updateUser).not.toHaveBeenCalled();
+    practice = await answerAll(practice);
+    expect(updateUser).toHaveBeenLastCalledWith({ username: 'student' }, { rank: 0 });
+    for (let attempt = 0; attempt < 2; attempt++) {
+      practice = (await api('post', '/retry', { attemptNumber: practice.attemptNumber })).body;
+      practice = await answerAll(practice);
+    }
+    expect(updateUser).toHaveBeenCalledTimes(3);
+    expect(updateUser).toHaveBeenLastCalledWith({ username: 'student' }, { rank: 1 });
+    practice = (await api('post', '/retry', { attemptNumber: practice.attemptNumber })).body;
+    await answerAll(practice, 'student', { timeouts: true });
+    expect(updateUser).toHaveBeenLastCalledWith({ username: 'student' }, { rank: 1 });
+    const history = (await api('get', '/history')).body;
+    expect(history.map(a => [a.attemptNumber, a.rank])).toEqual([[4, 1], [3, 1], [2, 0], [1, 0]]);
+    expect(history[0].results[0]).toHaveProperty('prompt', records.get('student').questions[0].prompt);
+  });
+
+  test('new attempts use questions for the rank stored on the user', async () => {
+    storedRank = 6;
+    const generated = [];
+    for (let attempt = 1; attempt <= 40; attempt++) {
+      await api('post', attempt === 1 ? '/start' : '/retry', { attemptNumber: attempt - 1 });
+      generated.push(...records.get('student').questions);
+    }
+    expect(User.findOne).toHaveBeenCalledWith({ username: 'student' });
+    expect(generated.some(q => /x|mean|:/.test(q.prompt))).toBe(true);
   });
 
 
@@ -204,7 +234,7 @@ describe('practice API', () => {
   test('accepts zero as an answer', async () => {
     const first = (await api('post', '/start')).body;
     const question = records.get('student').questions[0];
-    Object.assign(question, { factor1: 0, factor2: 0, correctAnswer: 0, choices: [0, 1, 2, 4] });
+    Object.assign(question, { prompt: '0 + 0 = ?', correctAnswer: 0, choices: [0, 1, 2, 4] });
     const result = await api('post', '/answer', answerBody(first, 0));
     expect(result.status).toBe(200);
     expect(records.get('student').questions[0]).toMatchObject({ selectedAnswer: 0, isCorrect: true });
@@ -282,12 +312,35 @@ describe('practice API', () => {
 
   });
 
-  test('retry on an unfinished attempt, leaves it incomplete in history', async () => {
-    await api('post', '/start');
-    expect((await api('post', '/retry', { attemptNumber: 1 })).body.attemptNumber).toBe(2);
+  test('retry on an unfinished attempt records it as a loss before starting the next attempt', async () => {
+    const first = (await api('post', '/start')).body;
+    now += 1000;
+    await api('post', '/answer', answerBody(first, records.get('student').questions[0].correctAnswer));
+    now += 2000;
+    const retry = (await api('post', '/retry', { attemptNumber: 1 })).body;
+    expect(retry).toMatchObject({ attemptNumber: 2, accuracy: 0, answeredCount: 0, completed: false });
     expect(records.get('student').questions.every(q => q.timeSolved === null)).toBe(true);
     expect(attempts).toHaveLength(2);
-    expect(attempts[0].completedAt).toBeNull();
+    expect(attempts[0].completedAt.getTime()).toBe(now);
+    expect(attempts[0].accuracy).toBe(33.33);
+    expect(attempts[0].questions.map(q => q.isCorrect)).toEqual([true, false, false]);
+    expect(attempts[0].questions[1]).toMatchObject({ selectedAnswer: null, timedOut: false, elapsedSeconds: 2 });
+    expect(attempts[0].questions[2]).toMatchObject({ selectedAnswer: null, timedOut: false, timeStarted: null, elapsedSeconds: null });
+    expect(updateUser).toHaveBeenCalledWith({ username: 'student' }, { rank: 0 });
+    const history = (await api('get', '/history')).body;
+    expect(history.map(a => a.attemptNumber)).toEqual([1]);
+  });
+
+  test('stats come from a database aggregation and are empty for a new user', async () => {
+    const aggregate = jest.spyOn(Practice, 'aggregate').mockResolvedValueOnce([]);
+    expect((await api('get', '/stats')).body).toEqual({
+      attempts: 0, averageAccuracy: null, bestAccuracy: null, averageSecondsPerQuestion: null, timeoutRate: null,
+    });
+    aggregate.mockResolvedValueOnce([{ attempts: 2, averageAccuracy: 50, bestAccuracy: 100, seconds: 12, timed: 4, questions: 6, timeouts: 3 }]);
+    expect((await api('get', '/stats')).body).toEqual({
+      attempts: 2, averageAccuracy: 50, bestAccuracy: 100, averageSecondsPerQuestion: 3, timeoutRate: 0.5,
+    });
+    expect(aggregate.mock.calls[0][0][0].$match.username).toBe('student');
   });
 
   test('rejects invalid choices, missing values, and out-of-order or duplicate answers', async () => {

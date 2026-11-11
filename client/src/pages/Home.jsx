@@ -60,6 +60,13 @@ export default function Home() {
     if (next) setShowPractice(true)
   }
 
+  const inProgress = practice?.attemptNumber > 0 && !practice.completed
+
+  const startOver = async () => {
+    const next = await updatePractice('/retry', { attemptNumber: practice.attemptNumber })
+    if (next) setShowPractice(true)
+  }
+
   return (
     <main className="mx-auto max-w-[1126px] p-5 text-center">
       <h1 className="my-8 text-[56px] tracking-[-1.68px] max-lg:my-5 max-lg:text-4xl">Math practice</h1>
@@ -71,8 +78,9 @@ export default function Home() {
       )}
       {!practice && !error && <p>Loading practice...</p>}
       {practice && !showPractice && (
-        <div className="flex justify-center">
-          <Button disabled={busy} onClick={openPractice}>Practice</Button>
+        <div className="flex flex-col items-center gap-2">
+          <Button disabled={busy} onClick={openPractice}>{inProgress ? `Continue attempt ${practice.attemptNumber}` : 'Practice'}</Button>
+          {inProgress && <Button disabled={busy} onClick={startOver}>Start over (counts as a loss)</Button>}
         </div>
       )}
       {practice && showPractice && (

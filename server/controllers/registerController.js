@@ -2,6 +2,8 @@ const { v4: uuidv4 } = require('uuid');
 const User = require('../model/User')
 const bcrypt = require('bcrypt')
 const ALLOWED_ROLES = ['student', 'teacher']
+const USERNAME_PATTERN = /^[A-Za-z0-9_.-]{3,30}$/
+const validName = (value) => typeof value === 'string' && value.trim().length > 0 && value.length <= 50
 
 
 const handleNewUser = async (req, res) => {
@@ -11,13 +13,22 @@ const handleNewUser = async (req, res) => {
     if (typeof role !== 'string' || !ALLOWED_ROLES.includes(role)) {
         return res.status(400).json({ 'message': 'Role must be either student or teacher' });
     }
-    const duplicate = await User.findOne({username: user}).exec();
+    if (typeof user !== 'string' || !USERNAME_PATTERN.test(user)) {
+        return res.status(400).json({ 'message': 'Username must be 3-30 letters, numbers, dots, dashes or underscores' });
+    }
+    if (typeof pwd !== 'string' || pwd.length < 8 || Buffer.byteLength(pwd) > 72) {
+        return res.status(400).json({ 'message': 'Password must be 8-72 characters' });
+    }
+    if (!validName(firstName) || !validName(lastName)) {
+        return res.status(400).json({ 'message': 'Names must be 1-50 characters' });
+    }
+    const duplicate = await User.findOne({username: user}, null, { sanitizeFilter: true }).exec();
     if (duplicate) return res.sendStatus(409);
 
     try {
         const generatedOpid = uuidv4();
         const hashedPwd = await bcrypt.hash(pwd, 10)
-        const result = await User.create({
+        await User.create({
             "opid": generatedOpid, 
             "username": user, 
             "password": hashedPwd,
@@ -26,10 +37,10 @@ const handleNewUser = async (req, res) => {
             "role": role 
         })
 
-        console.log(result)
         res.status(201).json({ 'success': `New user ${user} created`})
     } catch (err) {
-        res.status(500).json({ 'message': err.message })
+        if (err.code === 11000) return res.sendStatus(409);
+        res.status(500).json({ 'message': 'Unable to create the account. Please try again.' })
     }
     
 }   

@@ -3,12 +3,25 @@ import { useNavigate } from 'react-router-dom'
 import { requestPractice } from '../api/practice'
 import PracticeResults from '../components/practice/PracticeResults'
 import Button from '../components/ui/Button'
+import { rankInfo } from '../utils/rank'
 
-const show = (value, suffix = '') => (value === null ? '-' : `${Number(value.toFixed(1))}${suffix}`)
+function Attempt({ attempt }) {
+  return (
+    <details className="rounded-lg border border-border text-left">
+      <summary className="flex cursor-pointer items-center justify-between px-4 py-3 text-heading hover:text-accent">
+        <span>Attempt {attempt.attemptNumber}</span>
+        <span className="rounded-full bg-accent/15 px-3 py-0.5 text-sm text-accent">{rankInfo(attempt.rank).label}</span>
+      </summary>
+      <div className="border-t border-border px-4 py-3">
+        <PracticeResults results={attempt.results} />
+      </div>
+    </details>
+  )
+}
 
-function SessionSummary({ history, stats, error, onHome }) {
+function SessionSummary({ history, error, onHome }) {
   if (error) return <p role="alert" className="text-danger">{error}</p>
-  if (!history || !stats) return <p>Loading session...</p>
+  if (!history) return <p>Loading session...</p>
 
   if (history.length === 0) {
     return (
@@ -20,24 +33,14 @@ function SessionSummary({ history, stats, error, onHome }) {
   }
 
   return (
-    <div className="flex flex-col items-center gap-6">
-      <section className="flex flex-col items-center gap-1">
-        <p>Attempts: {stats.attempts} | Average accuracy: {show(stats.averageAccuracy, '%')} | Best accuracy: {show(stats.bestAccuracy, '%')}</p>
-        <p>Seconds per question: {show(stats.averageSecondsPerQuestion, 's')} | Timeouts: {show(stats.timeoutRate && stats.timeoutRate * 100, '%')}</p>
-      </section>
-      {history.map((attempt) => (
-        <section key={attempt.attemptNumber} className="flex flex-col items-center gap-3">
-          <p>Attempt {attempt.attemptNumber} | Accuracy: {attempt.accuracy}%</p>
-          <PracticeResults results={attempt.results} />
-        </section>
-      ))}
+    <div className="mx-auto flex max-w-md flex-col gap-2">
+      {history.map((attempt) => <Attempt key={attempt.attemptNumber} attempt={attempt} />)}
     </div>
   )
 }
 
 export default function Sessions() {
   const [history, setHistory] = useState(null)
-  const [stats, setStats] = useState(null)
   const [error, setError] = useState('')
   const navigate = useNavigate()
 
@@ -47,14 +50,8 @@ export default function Sessions() {
       return
     }
     const controller = new AbortController()
-    Promise.all([
-      requestPractice('get', '/history', undefined, controller.signal),
-      requestPractice('get', '/stats', undefined, controller.signal),
-    ])
-      .then(([historyData, statsData]) => {
-        setHistory(historyData)
-        setStats(statsData)
-      })
+    requestPractice('get', '/history', undefined, controller.signal)
+      .then(setHistory)
       .catch((err) => {
         if (err.response?.status === 401) {
           sessionStorage.removeItem('accessToken')
@@ -69,7 +66,7 @@ export default function Sessions() {
   return (
     <main className="mx-auto max-w-[1126px] p-5 text-center">
       <h1 className="mb-6 text-4xl">Session history</h1>
-      <SessionSummary history={history} stats={stats} error={error} onHome={() => navigate('/home')} />
+      <SessionSummary history={history} error={error} onHome={() => navigate('/home')} />
     </main>
   )
 }
