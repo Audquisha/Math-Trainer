@@ -8,8 +8,9 @@ const {
 
 const router = express.Router();
 
-const latestPractice = (username) =>
-  Practice.findOne({ username }).sort({ attemptNumber: -1 });
+const latestPractice = (username) => Practice.findOne({ username }).sort({ attemptNumber: -1 });
+
+const completed = (username) => ({ username, completedAt: { $ne: null } });
 
 router.use((req, res, next) => {
   const token = req.get('Authorization')?.match(/^Bearer (\S+)$/)?.[1];
@@ -100,6 +101,34 @@ router.post('/answer', async (req, res) => {
   res.json(practiceResponse(practice));
 });
 
+
+
+
+router.get('/history', async (req, res) => {
+  const attempts = await Practice.find(completed(req.practiceUsername))
+    .sort({ attemptNumber: -1 }).limit(50).lean();
+  res.json(attempts.map(a => ({
+    attemptNumber: a.attemptNumber,
+    accuracy: a.accuracy,
+    completedAt: a.completedAt,
+    results: a.questions.map(({ factor1, factor2, selectedAnswer, correctAnswer, isCorrect, timedOut, elapsedSeconds }) =>
+      ({ factor1, factor2, selectedAnswer, correctAnswer, isCorrect, timedOut, elapsedSeconds })),
+  })));
+});
+
+router.get('/stats', async (req, res) => {
+  const attempts = await Practice.find(completed(req.practiceUsername)).lean();
+  const qs = attempts.flatMap(a => a.questions);
+  const avg = (xs) => xs.length ? xs.reduce((s, x) => s + x, 0) / xs.length : null;
+  res.json({
+    attempts: attempts.length,
+    averageAccuracy: avg(attempts.map(a => a.accuracy)),
+    bestAccuracy: attempts.length ? Math.max(...attempts.map(a => a.accuracy)) : null,
+    averageSecondsPerQuestion: avg(qs.map(q => q.elapsedSeconds)),
+    timeoutRate: qs.length ? qs.filter(q => q.timedOut).length / qs.length : null,
+  });
+});
+
 router.use((err, req, res, next) => {
   if (res.headersSent) return next(err);
   if (err.name === 'VersionError' || err.code === 11000) {
@@ -107,5 +136,4 @@ router.use((err, req, res, next) => {
   }
   res.status(500).json({ message: 'Unable to save or load practice. Please try again.' });
 });
-
 module.exports = router;

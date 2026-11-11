@@ -16,6 +16,7 @@ const { getQuestionDuration } = require('../../client/src/utils/questionTimer.js
 
 let now;
 let records;
+let attempts;
 let save;
 
 function token(username = 'student') {
@@ -35,17 +36,48 @@ function answerBody(practice, selectedAnswer) {
   };
 }
 
+async function answerAll(practice, username = 'student', { timeouts = false } = {}) {
+  for (let i = 0; i < 3; i++) {
+    const question = records.get(username).questions[i];
+    now += timeouts ? 10000 : 1000;
+    practice = (await api('post', '/answer', answerBody(practice, timeouts ? null : question.correctAnswer), username)).body;
+  }
+  return practice;
+}
+
 beforeEach(() => {
   now = Date.parse('2026-10-28T12:00:00Z');
   records = new Map();
+  attempts = [];
   jest.spyOn(Date, 'now').mockImplementation(() => now);
-  jest.spyOn(Practice, 'findOne').mockImplementation(async ({ username }) => {
+  jest.spyOn(Practice, 'findOne').mockImplementation( ({ username }) => {
     const record = records.get(username);
-    return record ? Practice.hydrate(record) : null;
+    const query = Promise.resolve(record ? Practice.hydrate(record) : null);
+    query.sort = () => query;
+    return query;
   });
+
+  jest.spyOn(Practice, 'find').mockImplementation(({ username }) => {
+    let rows = attempts.filter(a => a.username === username && a.completedAt !== null);
+    const query = {
+      sort: () => { rows = [...rows].sort((a, b) => b.attemptNumber - a.attemptNumber); return query; },
+      limit: (n) => { rows = rows.slice(0, n); return query; },
+      lean: () => Promise.resolve(rows),
+    };
+    return query;
+  });
+  
   save = jest.spyOn(Practice.prototype, 'save').mockImplementation(async function () {
     await this.validate();
-    records.set(this.username, this.toObject());
+    const doc = this.toObject();
+    records.set(this.username, doc);
+    const brr = attempts.findIndex(a => a.username === doc.username && a.attemptNumber === doc.attemptNumber);
+    if(brr >= 0){
+      attempts[brr] = doc;
+    }
+    else{
+      attempts.push(doc);
+    }
     return this;
   });
 });
@@ -100,6 +132,12 @@ describe('question generation', () => {
 });
 
 describe('practice API', () => {
+  //history tests cause they wer previously deleted
+  test('history is empty for a new user', async () => {
+    expect((await api('get', '/history')).body).toEqual([]);
+  });
+
+
   test('requires a valid login for every operation', async () => {
     for (const [method, path] of [['get', ''], ['post', '/start'], ['post', '/retry'], ['post', '/answer']]) {
       const result = await request(app)[method](`/api/practice${path}`).send({});
@@ -225,7 +263,7 @@ describe('practice API', () => {
     expect(retry.status).toBe(200);
     expect(retry.body).toMatchObject({ attemptNumber: 2, accuracy: 0, answeredCount: 0, completed: false, results: [] });
     const saved = records.get('student');
-    expect(saved._id).toEqual(old._id);
+    expect(saved._id).not.toEqual(old._id);
     expect(saved.timeStarted.getTime()).toBe(now);
     expect(saved.completedAt).toBeNull();
     expect(saved.questions.map(q => q._id)).not.toEqual(old.questions.map(q => q._id));
@@ -236,14 +274,20 @@ describe('practice API', () => {
     expect(saved.questions.slice(1).every(q => q.timeStarted === null)).toBe(true);
     expect((await api('post', '/answer', oldRequest)).status).toBe(409);
     expect((await api('post', '/retry', { attemptNumber: 1 })).status).toBe(409);
-    expect(records.size).toBe(1);
+    
+    expect(attempts).toHaveLength(2);
+    expect(attempts[0]).toMatchObject({ attemptNumber: 1, accuracy: 100 });
+    expect(attempts[0].completedAt).not.toBeNull();  
     expect(records.get('student')).toEqual(saved);
+
   });
 
-  test('retry also resets an unfinished attempt', async () => {
+  test('retry on an unfinished attempt, leaves it incomplete in history', async () => {
     await api('post', '/start');
     expect((await api('post', '/retry', { attemptNumber: 1 })).body.attemptNumber).toBe(2);
     expect(records.get('student').questions.every(q => q.timeSolved === null)).toBe(true);
+    expect(attempts).toHaveLength(2);
+    expect(attempts[0].completedAt).toBeNull();
   });
 
   test('rejects invalid choices, missing values, and out-of-order or duplicate answers', async () => {
