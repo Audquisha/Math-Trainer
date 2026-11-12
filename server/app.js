@@ -28,6 +28,7 @@ app.use('/api/auth/register', require('./routes/register'));
 app.use('/api/auth/login', require('./routes/login'));
 app.use('/api/practice', require('./routes/practice'));
 app.use('/api/profile', require('./routes/profile'));
+app.use('/api/classes', require('./routes/classes'));
 
 app.use((err, req, res, next) => {
   if (res.headersSent) return next(err);
