@@ -33,10 +33,6 @@ const userSchema = new Schema({
         default: 0,
         min: 0,
         max: 6
-    },
-    refreshToken: {
-        type: String,
-        default: null
     }
 })
 

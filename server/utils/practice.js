@@ -92,7 +92,6 @@ function createQuestion([prompt, correctAnswer, step = 1, negative = false], tim
 }
 
 function generateQuestions(rank = 0) {
-  // Share the duration calculation with the existing browser timer.
   const { getQuestionDuration } = require('../../client/src/utils/questionTimer.js');
   const timeAvailable = getQuestionDuration(1);
   const generators = GENERATORS[Number.isInteger(rank) ? Math.min(Math.max(rank, 0), GENERATORS.length - 1) : 0];
@@ -164,12 +163,10 @@ function practiceResponse(practice, now = Date.now()) {
     question: question ? {
       id: question._id.toString(),
       number: practice.questions.indexOf(question) + 1,
-      prompt: questionPrompt(question),
-      choices: question.choices,
+      ...(question.timeStarted ? { prompt: questionPrompt(question), choices: question.choices } : {}),
       timeAvailable: question.timeAvailable,
       expiresAt: question.timeStarted ? questionDeadline(question) : null,
     } : null,
-    // Reveal answers only when the whole practice is finished.
     results: practice?.completedAt ? practice.questions.map(item => ({
       prompt: questionPrompt(item),
       selectedAnswer: item.selectedAnswer,
