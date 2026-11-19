@@ -21,7 +21,16 @@ const savePractice = async (practice) => {
   if (practice.completedAt) await updateRank(practice.username);
 };
 
+const sendPractice = (req, res, practice) => {
+  const now = Date.now();
+  res.json({
+    ...practiceResponse(practice, now),
+    serverProcessingMs: now - req.practiceRequestStarted,
+  });
+};
+
 router.use((req, res, next) => {
+  req.practiceRequestStarted = Date.now();
   const token = req.get('Authorization')?.match(/^Bearer (\S+)$/)?.[1];
   try {
     const decoded = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, { algorithms: ['HS256'] });
@@ -38,7 +47,8 @@ router.use((req, res, next) => {
 router.get('/', async (req, res) => {
   const practice = await latestPractice(req.practiceUsername);
   if (practice && expireQuestion(practice, Date.now())) await savePractice(practice);
-  res.json(practiceResponse(practice));
+  else if (practice?.completedAt) await updateRank(practice.username);
+  sendPractice(req, res, practice);
 });
 
 router.post('/start', async (req, res) => {
@@ -57,8 +67,9 @@ router.post('/start', async (req, res) => {
     const expired = expireQuestion(practice, now);
     const started = startQuestion(practice, now);
     if (expired || started) await savePractice(practice);
+    else if (practice.completedAt) await updateRank(practice.username);
   }
-  res.json(practiceResponse(practice));
+  sendPractice(req, res, practice);
 });
 
 router.post('/retry', async (req, res) => {
@@ -75,6 +86,8 @@ router.post('/retry', async (req, res) => {
   if (!latest.completedAt) {
     forfeitPractice(latest, now);
     await savePractice(latest);
+  } else {
+    await updateRank(req.practiceUsername);
   }
   const practice = new Practice({
     username: req.practiceUsername,
@@ -84,7 +97,7 @@ router.post('/retry', async (req, res) => {
   });
   startQuestion(practice, now);
   await practice.save();
-  res.json(practiceResponse(practice));
+  sendPractice(req, res, practice);
 });
 
 router.post('/answer', async (req, res) => {
@@ -106,16 +119,16 @@ router.post('/answer', async (req, res) => {
 
   const now = Date.now();
   if (selectedAnswer === null && now < questionDeadline(question)) {
-    return res.status(409).json({ message: 'The question still has time remaining.' });
+    return res.status(409).json({
+      message: 'The question still has time remaining.',
+      retryAfterMs: questionDeadline(question) - now,
+    });
   }
   finishQuestion(practice, question, selectedAnswer, now);
   startQuestion(practice, now);
   await savePractice(practice);
-  res.json(practiceResponse(practice));
+  sendPractice(req, res, practice);
 });
-
-
-
 
 router.get('/history', async (req, res) => {
   const attempts = await Practice.find(completed(req.practiceUsername))
