@@ -20,6 +20,7 @@ export default function TopBar() {
           <NavLink to="/home" className={navLinkClass}>Home</NavLink>
           <NavLink to="/sessions" className={navLinkClass}>Session</NavLink>
           <NavLink to="/profile" className={navLinkClass}>Profile</NavLink>
+          <NavLink to="/leaderboard" className={navLinkClass}>Leaderboard</NavLink>
         </nav>
         <Button onClick={logout}>Log out</Button>
       </div>
