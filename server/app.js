@@ -22,17 +22,17 @@ const limiter = (limit, options) => rateLimit({
 });
 
 app.use('/api/auth', limiter(10, { skipSuccessfulRequests: true }));
-app.use(['/api/practice', '/api/profile'], limiter(1500));
-
+app.use(['/api/practice', '/api/profile', '/api/leaderboard'], limiter(1500));
 app.use('/api/auth/register', require('./routes/register'));
 app.use('/api/auth/login', require('./routes/login'));
 app.use('/api/practice', require('./routes/practice'));
 app.use('/api/profile', require('./routes/profile'));
 app.use('/api/classes', require('./routes/classes'));
-
+app.use('/api/leaderboard', require('./routes/leaderboard'));
 app.use((err, req, res, next) => {
   if (res.headersSent) return next(err);
   const status = err.status >= 400 && err.status < 500 ? err.status : 500;
   res.status(status).json({ message: status === 500 ? 'Something went wrong. Please try again.' : 'Invalid request.' });
 });
 module.exports = app;
+
