@@ -1,7 +1,6 @@
 const User = require('../model/User')
 const bcrypt = require('bcrypt')
 const jwt = require('jsonwebtoken')
-const crypto = require('crypto')
 
 const handleLogin = async (req, res) => {
     const { user, pwd } = req.body
@@ -19,16 +18,7 @@ const handleLogin = async (req, res) => {
             process.env.ACCESS_TOKEN_SECRET,
             { expiresIn: '1h' }
         )
-        const refreshToken = jwt.sign(
-            { "username": foundUser.username },
-            process.env.REFRESH_TOKEN_SECRET,
-            { expiresIn: '1d' }
-        )
-        
-        foundUser.refreshToken = crypto.createHash('sha256').update(refreshToken).digest('hex')
-        await foundUser.save()
-        
-        res.cookie('jwt', refreshToken, { httpOnly: true, sameSite: 'None', maxAge: 24 * 60 * 60 * 1000 })//secure: true
+        res.clearCookie('jwt', { httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production' })
         res.json({ accessToken })
     } else {
         res.sendStatus(401)

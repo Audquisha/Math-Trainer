@@ -14,7 +14,7 @@ async function updateRank(username) {
     accuracy: { $gte: PASS_ACCURACY },
   });
   const rank = rankFromPasses(passes);
-  await User.updateOne({ username }, { rank });
+  await User.updateOne({ username }, { $max: { rank } });
   return rank;
 }
 

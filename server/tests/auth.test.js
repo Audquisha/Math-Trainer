@@ -1,7 +1,4 @@
-// Unit/integration tests for the auth
-
 process.env.ACCESS_TOKEN_SECRET = 'test-access-secret';
-process.env.REFRESH_TOKEN_SECRET = 'test-refresh-secret';
 
 jest.mock('uuid', () => ({ v4: () => 'test-opid' })); 
 jest.mock('../model/User');
@@ -168,16 +165,32 @@ describe('POST /api/auth/login', () => {
     expect(res.status).toBe(401);
   });
 
-  test('200 – returns a valid access token and sets refresh cookie', async () => {
+  test.each(['development', 'production'])('200 – keeps access-token login and clears the unused refresh cookie in %s', async (environment) => {
+    const previousEnvironment = process.env.NODE_ENV;
+    const previousSecret = process.env.REFRESH_TOKEN_SECRET;
+    process.env.NODE_ENV = environment;
+    delete process.env.REFRESH_TOKEN_SECRET;
     const save = jest.fn().mockResolvedValue({});
     mockFindOne({ username: 'chris', password: await bcrypt.hash('Passw0rd!', 4), save });
 
-    const res = await request(app).post('/api/auth/login').send({ user: 'chris', pwd: 'Passw0rd!' });
+    try {
+      const res = await request(app).post('/api/auth/login').send({ user: 'chris', pwd: 'Passw0rd!' });
 
-    expect(res.status).toBe(200);
-    const decoded = jwt.verify(res.body.accessToken, process.env.ACCESS_TOKEN_SECRET);
-    expect(decoded.UserInfo.username).toBe('chris');
-    expect(res.headers['set-cookie'][0]).toMatch(/^jwt=.*HttpOnly/);
-    expect(save).toHaveBeenCalled();
+      expect(res.status).toBe(200);
+      const decoded = jwt.verify(res.body.accessToken, process.env.ACCESS_TOKEN_SECRET);
+      expect(decoded.UserInfo.username).toBe('chris');
+      expect(decoded.exp - decoded.iat).toBe(3600);
+      const cookie = res.headers['set-cookie'][0];
+      expect(cookie).toMatch(/^jwt=;/);
+      expect(cookie).toContain('Expires=Thu, 01 Jan 1970');
+      expect(cookie).toContain('HttpOnly');
+      expect(cookie).toContain('SameSite=Lax');
+      expect(cookie.includes('Secure')).toBe(environment === 'production');
+      expect(save).not.toHaveBeenCalled();
+    } finally {
+      process.env.NODE_ENV = previousEnvironment;
+      if (previousSecret === undefined) delete process.env.REFRESH_TOKEN_SECRET;
+      else process.env.REFRESH_TOKEN_SECRET = previousSecret;
+    }
   });
 });
