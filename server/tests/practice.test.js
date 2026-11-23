@@ -1,7 +1,6 @@
 process.env.ACCESS_TOKEN_SECRET = 'practice-test-secret';
 
 jest.mock('uuid', () => ({ v4: () => 'test-opid' }));
-// Jest runs CommonJS; the app shares this ES module with the browser at runtime.
 jest.mock('../../client/src/utils/questionTimer.js', () => ({
   getQuestionDuration: jest.fn(() => 10),
 }));
@@ -13,6 +12,7 @@ const app = require('../app');
 const Practice = require('../model/Practice');
 const User = require('../model/User');
 const { createQuestion, generateQuestions } = require('../utils/practice');
+const { updateRank } = require('../utils/rank');
 const { getQuestionDuration } = require('../../client/src/utils/questionTimer.js');
 
 let now;
@@ -73,9 +73,17 @@ beforeEach(() => {
   jest.spyOn(Practice, 'countDocuments').mockImplementation(async ({ username, accuracy, attemptNumber }) =>
     attempts.filter(a => a.username === username && a.completedAt !== null && a.accuracy >= accuracy.$gte
       && (!attemptNumber || a.attemptNumber < attemptNumber.$lt)).length);
-  updateUser = jest.spyOn(User, 'updateOne').mockResolvedValue({});
   storedRank = 0;
-  jest.spyOn(User, 'findOne').mockImplementation(() => ({ select: () => ({ lean: async () => ({ rank: storedRank }) }) }));
+  updateUser = jest.spyOn(User, 'updateOne').mockImplementation(async (_, update) => {
+    storedRank = update.$max ? Math.max(storedRank, update.$max.rank) : update.rank;
+    return { matchedCount: 1 };
+  });
+  jest.spyOn(User, 'findOne').mockImplementation(({ username }) => {
+    const user = { username, rank: storedRank };
+    const query = Promise.resolve(user);
+    query.select = () => ({ lean: async () => user });
+    return query;
+  });
 
   save = jest.spyOn(Practice.prototype, 'save').mockImplementation(async function () {
     await this.validate();
@@ -132,7 +140,6 @@ describe('question generation', () => {
 });
 
 describe('practice API', () => {
-  //history tests cause they wer previously deleted
   test('history is empty for a new user', async () => {
     expect((await api('get', '/history')).body).toEqual([]);
   });
@@ -141,16 +148,16 @@ describe('practice API', () => {
     let practice = (await api('post', '/start')).body;
     expect(updateUser).not.toHaveBeenCalled();
     practice = await answerAll(practice);
-    expect(updateUser).toHaveBeenLastCalledWith({ username: 'student' }, { rank: 0 });
+    expect(updateUser).toHaveBeenLastCalledWith({ username: 'student' }, { $max: { rank: 0 } });
     for (let attempt = 0; attempt < 2; attempt++) {
       practice = (await api('post', '/retry', { attemptNumber: practice.attemptNumber })).body;
       practice = await answerAll(practice);
     }
-    expect(updateUser).toHaveBeenCalledTimes(3);
-    expect(updateUser).toHaveBeenLastCalledWith({ username: 'student' }, { rank: 1 });
+    expect(updateUser).toHaveBeenLastCalledWith({ username: 'student' }, { $max: { rank: 1 } });
+    expect(storedRank).toBe(1);
     practice = (await api('post', '/retry', { attemptNumber: practice.attemptNumber })).body;
     await answerAll(practice, 'student', { timeouts: true });
-    expect(updateUser).toHaveBeenLastCalledWith({ username: 'student' }, { rank: 1 });
+    expect(updateUser).toHaveBeenLastCalledWith({ username: 'student' }, { $max: { rank: 1 } });
     const history = (await api('get', '/history')).body;
     expect(history.map(a => [a.attemptNumber, a.rank])).toEqual([[4, 1], [3, 1], [2, 0], [1, 0]]);
     expect(history[0].results[0]).toHaveProperty('prompt', records.get('student').questions[0].prompt);
@@ -270,12 +277,22 @@ describe('practice API', () => {
     now += 60000;
     const loaded = await api('get');
     expect(loaded.body).toMatchObject({ answeredCount: 1, question: { number: 2, expiresAt: null } });
+    expect(loaded.body.question).not.toHaveProperty('prompt');
+    expect(loaded.body.question).not.toHaveProperty('choices');
+    expect(loaded.body.question).not.toHaveProperty('correctAnswer');
     expect(records.get('student').questions[0].timeSolved.getTime()).toBe(practice.question.expiresAt);
     expect(records.get('student').questions[1].timeStarted).toBeNull();
     now += 5000;
-    expect((await api('get')).body.answeredCount).toBe(1);
+    const waiting = await api('get');
+    expect(waiting.body.answeredCount).toBe(1);
+    expect(waiting.body.question).not.toHaveProperty('prompt');
+    expect(waiting.body.question).not.toHaveProperty('choices');
+    expect((await api('post', '/answer', answerBody(waiting.body, records.get('student').questions[1].correctAnswer))).status).toBe(409);
     const resumed = await api('post', '/start');
     expect(resumed.body.question.expiresAt).toBe(now + 10000);
+    expect(resumed.body.question.prompt).toBe(records.get('student').questions[1].prompt);
+    expect(resumed.body.question.choices).toEqual(records.get('student').questions[1].choices);
+    expect(resumed.body.question).not.toHaveProperty('correctAnswer');
     expect(records.get('student').attemptNumber).toBe(1);
   });
 
@@ -326,7 +343,7 @@ describe('practice API', () => {
     expect(attempts[0].questions.map(q => q.isCorrect)).toEqual([true, false, false]);
     expect(attempts[0].questions[1]).toMatchObject({ selectedAnswer: null, timedOut: false, elapsedSeconds: 2 });
     expect(attempts[0].questions[2]).toMatchObject({ selectedAnswer: null, timedOut: false, timeStarted: null, elapsedSeconds: null });
-    expect(updateUser).toHaveBeenCalledWith({ username: 'student' }, { rank: 0 });
+    expect(updateUser).toHaveBeenCalledWith({ username: 'student' }, { $max: { rank: 0 } });
     const history = (await api('get', '/history')).body;
     expect(history.map(a => a.attemptNumber)).toEqual([1]);
   });
@@ -376,5 +393,78 @@ describe('practice API', () => {
     expect(failed.status).toBe(500);
     expect(failed.body.message).toMatch(/Unable to save or load/);
     expect(records.size).toBe(0);
+  });
+
+  async function failThirdPerfectAttemptRankUpdate() {
+    let practice = (await api('post', '/start')).body;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      practice = await answerAll(practice);
+      practice = (await api('post', '/retry', { attemptNumber: practice.attemptNumber })).body;
+    }
+    for (let index = 0; index < 2; index++) {
+      now += 1000;
+      practice = (await api('post', '/answer', answerBody(practice, records.get('student').questions[index].correctAnswer))).body;
+    }
+    updateUser.mockRejectedValueOnce(new Error('Rank write unavailable'));
+    now += 1000;
+    expect((await api('post', '/answer', answerBody(practice, records.get('student').questions[2].correctAnswer))).status).toBe(500);
+    expect(records.get('student')).toMatchObject({ accuracy: 100, attemptNumber: 3 });
+    expect(records.get('student').completedAt).not.toBeNull();
+    expect(storedRank).toBe(0);
+  }
+
+  test.each(['reload', 'start', 'retry', 'profile'])('repairs a failed rank write on %s without replaying answers', async (recovery) => {
+    await failThirdPerfectAttemptRankUpdate();
+    const completed = records.get('student');
+    const response = recovery === 'profile'
+      ? await request(app).get('/api/profile').set('Authorization', `Bearer ${token()}`)
+      : await api(recovery === 'reload' ? 'get' : 'post', recovery === 'reload' ? '' : `/${recovery}`, { attemptNumber: 3 });
+    expect(response.status).toBe(200);
+    expect(storedRank).toBe(1);
+    expect(attempts.filter(attempt => attempt.completedAt)).toHaveLength(3);
+    expect(attempts[2]).toEqual(completed);
+    if (recovery === 'profile') expect(response.body.rank).toBe(1);
+    if (recovery === 'retry') expect(response.body.attemptNumber).toBe(4);
+  });
+
+  test('does not create a retry at the wrong rank while rank recovery is failing', async () => {
+    await failThirdPerfectAttemptRankUpdate();
+    updateUser.mockRejectedValueOnce(new Error('Rank write still unavailable'));
+    expect((await api('post', '/retry', { attemptNumber: 3 })).status).toBe(500);
+    expect(attempts).toHaveLength(3);
+    expect(records.get('student').attemptNumber).toBe(3);
+    expect((await api('post', '/retry', { attemptNumber: 3 })).status).toBe(200);
+    expect(storedRank).toBe(1);
+    expect(attempts).toHaveLength(4);
+  });
+
+  test('a delayed older rank update cannot overwrite a newer promotion', async () => {
+    Practice.countDocuments.mockResolvedValueOnce(3).mockResolvedValueOnce(6);
+    const applyUpdate = updateUser.getMockImplementation();
+    let releaseOlder;
+    let olderStarted;
+    const started = new Promise(resolve => { olderStarted = resolve; });
+    const pending = new Promise(resolve => { releaseOlder = resolve; });
+    updateUser.mockImplementationOnce(async (...args) => {
+      olderStarted();
+      await pending;
+      return applyUpdate(...args);
+    });
+    const older = updateRank('student');
+    await started;
+    await updateRank('student');
+    expect(storedRank).toBe(2);
+    releaseOlder();
+    await older;
+    expect(storedRank).toBe(2);
+  });
+
+  test('returns the remaining server wait for an early timeout without resolving the question', async () => {
+    const practice = (await api('post', '/start')).body;
+    now += 8000;
+    const response = await api('post', '/answer', answerBody(practice, null));
+    expect(response.status).toBe(409);
+    expect(response.body.retryAfterMs).toBe(2000);
+    expect(records.get('student').questions[0].timeSolved).toBeNull();
   });
 });

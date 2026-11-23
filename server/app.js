@@ -21,8 +21,12 @@ const limiter = (limit, options) => rateLimit({
   ...options,
 });
 
-app.use('/api/auth', limiter(10, { skipSuccessfulRequests: true }));
 app.use(['/api/practice', '/api/profile', '/api/leaderboard'], limiter(1500));
+
+
+app.use('/api/auth/register', limiter(10));
+app.use('/api/auth/login', limiter(10, { skipSuccessfulRequests: true }));
+
 app.use('/api/auth/register', require('./routes/register'));
 app.use('/api/auth/login', require('./routes/login'));
 app.use('/api/practice', require('./routes/practice'));
