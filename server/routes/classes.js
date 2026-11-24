@@ -19,5 +19,6 @@ router.use((req, res, next) => {
 
 router.post('/create', classController.handleCreateClass)
 router.post('/join', classController.handleJoinClass);
-
+router.post('/removestudent', classController.handleRemoveStudentFromClass);
+router.get('/roster', classController.getAllStudentsInClass);
 module.exports = router;
