@@ -19,6 +19,10 @@ const userSchema = new Schema({
     students: {
         type: [String],
         default: []
+    },
+    teacherId: {
+        type: String,
+        required: [true, 'User teacher is required'],
     }
 })
 

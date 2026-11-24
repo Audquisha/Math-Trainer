@@ -71,4 +71,101 @@ const handleJoinClass = async (req, res) => {
     }
 };
 
-module.exports = { handleCreateClass, handleJoinClass };    
+const handleRemoveStudentFromClass = async (req, res) => {
+const { classCode, studentId } = req.body;
+    const username = req.profileUsername;
+
+    if (!classCode) {
+        return res.status(400).json({ message: 'Class code is required.' });
+    }
+
+    try {
+        const foundUser = await User.findOne({ username: username }).exec();
+        if (!foundUser) {
+            return res.status(404).json({ message: 'User not found.' });
+        }
+
+        const foundClass = await Class.findOne({ classCode: classCode }).exec();
+        if (!foundClass) {
+            return res.status(404).json({ message: 'Class not found.' });
+        }
+
+        let targetStudentId;
+
+        if (foundUser.role === 'teacher') {
+            if (foundClass.teacherId !== foundUser.opid) {
+                return res.status(403).json({ message: 'You are not authorized to modify this class.' });
+            }
+            if (!studentId) {
+                return res.status(400).json({ message: 'Student ID (opid) is required when removing a student as a teacher.' });
+            }
+            targetStudentId = studentId;
+        } else if (foundUser.role === 'student') {
+            targetStudentId = foundUser.opid;
+        } else {
+            return res.status(403).json({ message: 'Unauthorized role.' });
+        }
+
+        if (!foundClass.students.includes(targetStudentId)) {
+            return res.status(404).json({ message: 'Student is not enrolled in this class.' });
+        }
+
+        foundClass.students = foundClass.students.filter(id => id !== targetStudentId);
+        await foundClass.save();
+
+        res.status(200).json({ 
+            success: `Student removed from class ${classCode}`, 
+            class: foundClass 
+        });
+    } catch (err) {
+        res.status(500).json({ message: 'Unable to remove the student from the class. Please try again.' });
+    }
+};
+
+const getAllStudentsInClass = async (req, res) => {
+    const username = req.profileUsername;
+
+    try {
+        const foundUser = await User.findOne({ username: username }).exec();
+        if (!foundUser) {
+            return res.status(404).json({ message: 'User not found.' });
+        }
+
+        if (foundUser.role !== 'teacher') {
+            return res.status(403).json({ message: 'Only teachers can view class rosters.' });
+        }
+
+        const teacherClasses = await Class.find({ teacherId: foundUser.opid }).lean().exec();
+
+        if (!teacherClasses || teacherClasses.length === 0) {
+            return res.status(200).json({ classes: [] });
+        }
+
+        const allStudentOpids = [
+            ...new Set(teacherClasses.flatMap((cls) => cls.students))
+        ];
+
+        const studentDocs = await User.find({ opid: { $in: allStudentOpids } })
+            .select('opid username firstName lastName email -_id')
+            .lean()
+            .exec();
+
+        const studentMap = new Map(
+            studentDocs.map((student) => [student.opid, student])
+        );
+
+        const classesWithStudents = teacherClasses.map((cls) => ({
+            ...cls,
+            students: cls.students
+                .map((studentOpid) => studentMap.get(studentOpid))
+                .filter(Boolean)
+        }));
+
+        res.status(200).json({ classes: classesWithStudents });
+    } catch (err) {
+        console.error('Get Teacher Classes Error:', err);
+        res.status(500).json({ message: 'Unable to load classes and students. Please try again.' });
+    }
+}
+
+module.exports = { handleCreateClass, handleJoinClass, handleRemoveStudentFromClass, getAllStudentsInClass };    
