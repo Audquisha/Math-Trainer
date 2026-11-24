@@ -4,7 +4,9 @@ import { requestProfile } from '../api/profile'
 import { requestPractice } from '../api/practice'
 import RankBadge from '../components/ui/RankBadge'
 import { rankInfo } from '../utils/rank'
-
+import { requestClasses } from '../api/classes'
+import Button from '../components/ui/Button'
+import { TextField } from '../components/ui/FormFields'
 const show = (value, suffix = '') => (value == null ? '-' : `${Number(value.toFixed(1))}${suffix}`)
 
 function Stat({ label, value }) {
@@ -22,6 +24,9 @@ export default function Profile() {
   const [error, setError] = useState('')
   const navigate = useNavigate()
   const rank = rankInfo(profile?.rank)
+  const [classCode, setClassCode] = useState('')
+  const [joinError, setJoinError] = useState('')
+  const [joinMessage, setJoinMessage] = useState('')
 
   useEffect(() => {
     if (!sessionStorage.getItem('accessToken')) {
@@ -48,6 +53,26 @@ export default function Profile() {
     return () => controller.abort()
   }, [navigate])
 
+
+  const joinClass = async (e) => {
+    e.preventDefault()
+    setJoinMessage('')
+    if (classCode == '') {
+      setJoinError('Class Code is Required!')
+      return
+    }
+
+    try {
+      await requestClasses('post', 'classes/join', { classCode })
+      setClassCode('')
+      setJoinError('')
+      setJoinMessage('You joined the class!')
+    } catch (err) {
+      setJoinError(err.response?.data?.message || 'Unable to join the class.')
+    }
+  }
+
+
   return (
     <main className="mx-auto max-w-[1126px] p-5 text-center">
       <h1 className="mb-6 text-4xl">Profile</h1>
@@ -71,6 +96,18 @@ export default function Profile() {
             <Stat label="Best" value={show(stats.bestAccuracy, '%')} />
           </dl>
         </section>
+      )}
+      {profile && profile.role === 'student' && (
+        <form noValidate onSubmit={joinClass} className="mx-auto mt-8 flex max-w-xs flex-col gap-2.5">
+          <TextField
+            label="Class Code"
+            value={classCode}
+            onChange={(e) => setClassCode(e.target.value)}
+            error={joinError}
+          />
+          {joinMessage && <p role="status" className="text-success">{joinMessage}</p>}
+          <Button type="submit">Join class</Button>
+        </form>
       )}
     </main>
   )
