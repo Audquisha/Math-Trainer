@@ -26,6 +26,7 @@ function api(username = 'student') {
 }
 
 afterEach(() => {
+  app.set('query parser', 'simple');
   jest.restoreAllMocks();
   jest.clearAllMocks();
 });
@@ -34,6 +35,16 @@ describe('leaderboard API', () => {
   test('requires a valid login', async () => {
     expect((await request(app).get('/api/leaderboard')).status).toBe(401);
     expect((await request(app).get('/api/leaderboard').set('Authorization', 'Bearer invalid')).status).toBe(401);
+  });
+
+  test.each([{ $ne: null }, ['student'], 1, null, ''])('rejects non-scalar or empty JWT usernames (%p)', async (username) => {
+    const findUser = jest.spyOn(User, 'findOne');
+    const aggregate = jest.spyOn(Practice, 'aggregate');
+    for (const path of ['', '/classes', '?classCode=MATH1']) {
+      expect((await classApi(path, username)).status).toBe(401);
+    }
+    expect(findUser).not.toHaveBeenCalled();
+    expect(aggregate).not.toHaveBeenCalled();
   });
 
   test('is empty when nobody has completed a practice', async () => {
@@ -99,8 +110,40 @@ describe('class leaderboard', () => {
     expect(aggregate).not.toHaveBeenCalled();
   });
 
-  test('rejects a class code that is not a single string', async () => {
-    expect((await classApi('?classCode=a&classCode=b')).status).toBe(400);
+  test.each(['?classCode=a&classCode=b', '?classCode=', '?classCode=%20%20', `?classCode=${'x'.repeat(51)}`])(
+    'rejects invalid class codes before running queries (%s)', async (path) => {
+      const findUser = jest.spyOn(User, 'findOne');
+      const findClass = jest.spyOn(Class, 'findOne');
+      const aggregate = jest.spyOn(Practice, 'aggregate');
+      expect((await classApi(path)).status).toBe(400);
+      expect(findUser).not.toHaveBeenCalled();
+      expect(findClass).not.toHaveBeenCalled();
+      expect(aggregate).not.toHaveBeenCalled();
+    }
+  );
+
+  test.each(['classCode[$ne]=', 'classCode[$regex]=.*', 'classCode[]=MATH1'])(
+    'rejects nested query input even with an extended query parser (%s)', async (query) => {
+      app.set('query parser', 'extended');
+      const findClass = jest.spyOn(Class, 'findOne');
+      const aggregate = jest.spyOn(Practice, 'aggregate');
+      expect((await classApi(`?${query}`)).status).toBe(400);
+      expect(findClass).not.toHaveBeenCalled();
+      expect(aggregate).not.toHaveBeenCalled();
+    }
+  );
+
+  test('uses query sanitization at the three externally sourced scalar lookups', async () => {
+    const findUser = jest.spyOn(User, 'findOne').mockResolvedValue({ opid: 's1', role: 'student' });
+    const findClass = jest.spyOn(Class, 'findOne').mockResolvedValue(null);
+    const code = '{"$ne":null}';
+    expect((await classApi(`?classCode=${encodeURIComponent(code)}`)).status).toBe(403);
+    expect(findClass).toHaveBeenCalledWith({ classCode: code }, null, { sanitizeFilter: true });
+    expect(findUser).toHaveBeenLastCalledWith({ username: 'student' }, null, { sanitizeFilter: true });
+
+    jest.spyOn(Class, 'find').mockReturnValue({ select: () => ({ lean: async () => [] }) });
+    expect((await classApi('/classes')).status).toBe(200);
+    expect(findUser).toHaveBeenLastCalledWith({ username: 'student' }, null, { sanitizeFilter: true });
   });
 
   test('lists the classes a student is in and the classes a teacher owns', async () => {

@@ -170,7 +170,7 @@ describe('practice API', () => {
       await api('post', attempt === 1 ? '/start' : '/retry', { attemptNumber: attempt - 1 });
       generated.push(...records.get('student').questions);
     }
-    expect(User.findOne).toHaveBeenCalledWith({ username: 'student' });
+    expect(User.findOne).toHaveBeenCalledWith({ username: 'student' }, null, { sanitizeFilter: true });
     expect(generated.some(q => /x|mean|:/.test(q.prompt))).toBe(true);
   });
 

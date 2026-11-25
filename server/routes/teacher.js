@@ -22,7 +22,7 @@ router.use((req, res, next) => {
 });
 
 router.get('/', async (req, res) => {
-    const teacher = await User.findOne({ username: req.teacherUsername });
+    const teacher = await User.findOne({ username: req.teacherUsername }, null, { sanitizeFilter: true });
     if (!teacher){
         return res.status(404).json({message: "User not found!"});
     }

@@ -21,7 +21,10 @@ export default function Teacher() {
     }
     const controller = new AbortController()
     requestClasses('get', 'teacher', undefined, controller.signal)
-      .then(setClasses)
+      .then((data) => {
+        setClasses(data)
+        setError('')
+      })
       .catch((err) => {
         if (err.response?.status === 401) {
           sessionStorage.removeItem('accessToken')
@@ -50,7 +53,7 @@ export default function Teacher() {
       await requestClasses('post', 'classes/create', { className: form.className, classCode: form.classCode })
       setForm({ className: '', classCode: '' })
       setErrors({ className: '', classCode: '', general: '' })
-      setReload(reload + 1)
+      setReload((previous) => previous + 1)
     } catch (err) {
       if (err.response?.status === 409) {
         setErrors({ className: '', classCode: '', general: 'That Class Code is already taken!' })
@@ -64,7 +67,7 @@ export default function Teacher() {
     if (!window.confirm(`Remove ${student.firstName} ${student.lastName} from this class?`)) return
     try {
       await requestClasses('post', 'classes/removestudent', { classCode, studentId: student.opid })
-      setReload(reload + 1)
+      setReload((previous) => previous + 1)
     } catch (err) {
       setError(err.response?.data?.message || 'Unable to remove the student.')
     }

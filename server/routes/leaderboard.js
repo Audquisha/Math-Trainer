@@ -4,6 +4,7 @@ const Practice = require('../model/Practice');
 const { PASS_ACCURACY } = require('../utils/rank');
 const Class = require('../model/Class');
 const User = require('../model/User');
+const { isValidClassCode } = require('../utils/validation');
 
 const router = express.Router();
 
@@ -23,16 +24,16 @@ router.use((req, res, next) => {
   }
 });
 
-
 router.get('/', async (req, res) => {
   const match = { completedAt: { $ne: null } };
 
-  if (req.query.classCode !== undefined) {
-    if (typeof req.query.classCode !== 'string') {
+  const classCode = req.query.classCode;
+  if (classCode !== undefined) {
+    if (!isValidClassCode(classCode)) {
       return res.status(400).json({ message: 'A valid class code is required.' });
     }
-    const user = await User.findOne({ username: req.leaderboardUsername });
-    const cls = await Class.findOne({ classCode: req.query.classCode });
+    const user = await User.findOne({ username: req.leaderboardUsername }, null, { sanitizeFilter: true });
+    const cls = await Class.findOne({ classCode }, null, { sanitizeFilter: true });
     if (!user || !cls || (cls.teacherId !== user.opid && !cls.students.includes(user.opid))) {
       return res.status(403).json({ message: 'You are not in that class.' });
     }
@@ -66,7 +67,7 @@ router.get('/', async (req, res) => {
 });
 
 router.get('/classes', async (req, res) => {
-  const user = await User.findOne({ username: req.leaderboardUsername });
+  const user = await User.findOne({ username: req.leaderboardUsername }, null, { sanitizeFilter: true });
   if (!user) {
     return res.status(404).json({ message: 'User not found!' });
   }
