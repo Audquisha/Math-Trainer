@@ -4,6 +4,8 @@ import Home from './pages/Home.jsx'
 import Sessions from './pages/Sessions.jsx'
 import Profile from './pages/Profile.jsx'
 import AppLayout from './components/layout/AppLayout.jsx'
+import Leaderboard from './pages/Leaderboard'
+import Teacher from './pages/Teacher.jsx'
 
 function App() {
   return (
@@ -15,7 +17,8 @@ function App() {
           <Route path="/home" element={<Home />} />
           <Route path="/sessions" element={<Sessions />} />
           <Route path="/profile" element={<Profile />} />
-
+          <Route path="/leaderboard" element={<Leaderboard />} />
+          <Route path="/teacher" element={<Teacher />} />
         </Route>
       </Routes>
     </BrowserRouter>
