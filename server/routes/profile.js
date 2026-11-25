@@ -21,7 +21,7 @@ router.use((req, res, next) => {
 
 router.get('/', async (req, res) => {
     await updateRank(req.profileUsername);
-    const user = await User.findOne({ username: req.profileUsername });
+    const user = await User.findOne({ username: req.profileUsername }, null, { sanitizeFilter: true });
     if (!user){
         return res.status(404).json({message: "User not found!"});
     }

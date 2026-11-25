@@ -14,6 +14,17 @@ const mockFindOne = (value) => User.findOne.mockReturnValue({ exec: jest.fn().mo
 
 const validUser = { user: 'chris', pwd: 'Passw0rd!', firstName: 'Chris', lastName: 'Taylor', role: 'student' };
 
+describe.each(['/api/practice', '/api/profile', '/api/classes/roster', '/api/teacher'])(
+  'query input protection for %s', (path) => {
+    test.each([{ $ne: null }, ['chris'], 123])('rejects a non-string signed username %p', async (username) => {
+      const accessToken = jwt.sign({ UserInfo: { username } }, process.env.ACCESS_TOKEN_SECRET);
+      const response = await request(app).get(path).set('Authorization', `Bearer ${accessToken}`);
+      expect(response.status).toBe(401);
+      expect(User.findOne).not.toHaveBeenCalled();
+    });
+  }
+);
+
 beforeEach(() => {
   jest.clearAllMocks();
   jest.spyOn(console, 'log').mockImplementation(() => {}); 

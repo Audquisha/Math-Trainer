@@ -10,11 +10,11 @@ const { PASS_ACCURACY, rankFromPasses, updateRank } = require('../utils/rank');
 
 const router = express.Router();
 
-const latestPractice = (username) => Practice.findOne({ username }).sort({ attemptNumber: -1 });
+const latestPractice = (username) => Practice.findOne({ username }, null, { sanitizeFilter: true }).sort({ attemptNumber: -1 });
 
 const completed = (username) => ({ username, completedAt: { $ne: null } });
 
-const userRank = async (username) => (await User.findOne({ username }).select('rank').lean())?.rank ?? 0;
+const userRank = async (username) => (await User.findOne({ username }, null, { sanitizeFilter: true }).select('rank').lean())?.rank ?? 0;
 
 const savePractice = async (practice) => {
   await practice.save();

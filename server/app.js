@@ -21,11 +21,12 @@ const limiter = (limit, options) => rateLimit({
   ...options,
 });
 
-app.use(['/api/practice', '/api/profile', '/api/leaderboard', '/api/teacher'], limiter(1500));
-
+app.use(['/api/practice', '/api/profile', '/api/leaderboard', '/api/teacher', '/api/classes'], limiter(1500));
 
 app.use('/api/auth/register', limiter(10));
 app.use('/api/auth/login', limiter(10, { skipSuccessfulRequests: true }));
+app.use('/api/classes/create', limiter(30));
+app.use('/api/classes/join', limiter(30, { skipSuccessfulRequests: true }));
 
 app.use('/api/auth/register', require('./routes/register'));
 app.use('/api/auth/login', require('./routes/login'));
@@ -40,4 +41,3 @@ app.use((err, req, res, next) => {
   res.status(status).json({ message: status === 500 ? 'Something went wrong. Please try again.' : 'Invalid request.' });
 });
 module.exports = app;
-

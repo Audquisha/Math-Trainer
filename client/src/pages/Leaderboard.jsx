@@ -85,12 +85,14 @@ export default function Leaderboard() {
   }, [navigate, scope, classCode])
 
   const chooseScope = (next) => {
+    if (next === scope) return
     setEntries(null)
     setError('')
     setScope(next)
   }
 
   const chooseClass = (next) => {
+    if (next === classCode) return
     setEntries(null)
     setError('')
     setClassCode(next)
