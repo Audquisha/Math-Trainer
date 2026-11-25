@@ -2,6 +2,8 @@ const express = require('express');
 const jwt = require('jsonwebtoken');
 const Practice = require('../model/Practice');
 const { PASS_ACCURACY } = require('../utils/rank');
+const Class = require('../model/Class');
+const User = require('../model/User');
 
 const router = express.Router();
 
@@ -21,9 +23,25 @@ router.use((req, res, next) => {
   }
 });
 
+
 router.get('/', async (req, res) => {
+  const match = { completedAt: { $ne: null } };
+
+  if (req.query.classCode !== undefined) {
+    if (typeof req.query.classCode !== 'string') {
+      return res.status(400).json({ message: 'A valid class code is required.' });
+    }
+    const user = await User.findOne({ username: req.leaderboardUsername });
+    const cls = await Class.findOne({ classCode: req.query.classCode });
+    if (!user || !cls || (cls.teacherId !== user.opid && !cls.students.includes(user.opid))) {
+      return res.status(403).json({ message: 'You are not in that class.' });
+    }
+    const members = await User.find({ opid: { $in: cls.students } }).select('username').lean();
+    match.username = { $in: members.map((member) => member.username) };
+  }
+
   const rows = await Practice.aggregate([
-    { $match: { completedAt: { $ne: null } } },
+    { $match: match },
     { $group: {
       _id: '$username',
       attempts: { $sum: 1 },
@@ -45,6 +63,16 @@ router.get('/', async (req, res) => {
     attempts: row.attempts,
     isYou: row._id === req.leaderboardUsername,
   })));
+});
+
+router.get('/classes', async (req, res) => {
+  const user = await User.findOne({ username: req.leaderboardUsername });
+  if (!user) {
+    return res.status(404).json({ message: 'User not found!' });
+  }
+  const filter = user.role === 'teacher' ? { teacherId: user.opid } : { students: user.opid };
+  const classes = await Class.find(filter).select('classCode className -_id').lean();
+  res.json(classes);
 });
 
 router.use((err, req, res, next) => {
