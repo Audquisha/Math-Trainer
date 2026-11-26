@@ -2,7 +2,7 @@ const User = require('../model/User')
 const bcrypt = require('bcrypt')
 const jwt = require('jsonwebtoken')
 
-const DUMMY_HASH = '$2b$10$CwTycUXWue0Thq9StjUM0uJ8.6A9.A/0o1xW/Y9U1m2X4oQ2x6W8.';
+const DUMMY_HASH = bcrypt.hashSync(crypto.randomBytes(32).toString('hex'), 10);
 
 const handleLogin = async (req, res) => {
     const rawUser = req.body?.user;
