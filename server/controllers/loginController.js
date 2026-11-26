@@ -2,6 +2,8 @@ const User = require('../model/User')
 const bcrypt = require('bcrypt')
 const jwt = require('jsonwebtoken')
 
+const DUMMY_HASH = '$2b$10$CwTycUXWue0Thq9StjUM0uJ8.6A9.A/0o1xW/Y9U1m2X4oQ2x6W8.';
+
 const handleLogin = async (req, res) => {
     const rawUser = req.body?.user;
     const rawPwd = req.body?.pwd;
@@ -26,7 +28,7 @@ const handleLogin = async (req, res) => {
     try {
         const foundUser = await User.findOne({ username: { $eq: safeUser } }).exec();
 
-        const passwordHash = foundUser ? foundUser.password : '$2b$10$invalidsaltinvalidsaltinv';
+        const passwordHash = foundUser ? foundUser.password : DUMMY_HASH;
         const match = await bcrypt.compare(safePwd, passwordHash);
 
         if (!foundUser || !match) {

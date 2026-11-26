@@ -7,92 +7,115 @@ const User = require('../model/User');
 const { isValidClassCode } = require('../utils/validation');
 
 const router = express.Router();
-
 const LEADERBOARD_SIZE = 50;
 
-router.use((req, res, next) => {
-  const authHeader = req.get('Authorization');
-  if (typeof authHeader !== 'string' || !authHeader.startsWith('Bearer ')) {
+const authenticateLeaderboard = (req, res, next) => {
+  const authValue = req.headers?.authorization || req.headers?.Authorization;
+  if (typeof authValue !== 'string' || !authValue.startsWith('Bearer ')) {
     return res.sendStatus(401);
   }
 
-  const token = authHeader.slice(7).trim();
-  if (!token || !process.env.ACCESS_TOKEN_SECRET) {
+  const jwtSecret = process.env.ACCESS_TOKEN_SECRET;
+  const bearerToken = authValue.slice(7).trim();
+  if (!bearerToken || !jwtSecret) {
     return res.sendStatus(401);
   }
 
   try {
-    const decoded = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, {
-      algorithms: ['HS256'],
-    });
-    const username = decoded?.UserInfo?.username;
-    if (typeof username !== 'string' || !username.trim()) {
+    const claims = jwt.verify(bearerToken, jwtSecret, { algorithms: ['HS256'] });
+    const subject = claims?.UserInfo?.username;
+    if (typeof subject !== 'string' || !subject.trim()) {
       return res.sendStatus(401);
     }
-    req.leaderboardUsername = String(username).trim();
+    req.leaderboardUsername = String(subject).trim();
     return next();
   } catch {
     return res.sendStatus(401);
   }
-});
+};
+
+const resolveAuthenticatedUser = async (req, res) => {
+  const rawUsername = req.leaderboardUsername;
+  if (typeof rawUsername !== 'string' || !rawUsername.trim()) {
+    res.sendStatus(401);
+    return null;
+  }
+
+  const safeUsername = String(rawUsername).trim();
+  const user = await User.findOne({ username: { $eq: safeUsername } }).exec();
+  if (!user) {
+    res.status(404).json({ message: 'User not found!' });
+    return null;
+  }
+
+  return { user, safeUsername };
+};
+
+const getClassMemberFilter = async (rawClassCode, user, res) => {
+  if (typeof rawClassCode !== 'string' || !isValidClassCode(rawClassCode)) {
+    res.status(400).json({ message: 'A valid class code is required.' });
+    return null;
+  }
+
+  const safeClassCode = String(rawClassCode).trim();
+  const cls = await Class.findOne({ classCode: { $eq: safeClassCode } }).exec();
+  if (!cls || (cls.teacherId !== user.opid && !cls.students.includes(user.opid))) {
+    res.status(403).json({ message: 'You are not in that class.' });
+    return null;
+  }
+
+  const members = await User.find({ opid: { $in: cls.students } })
+    .select('username')
+    .lean()
+    .exec();
+
+  return { $in: members.map((member) => member.username) };
+};
+
+const buildLeaderboardPipeline = (matchStage) => [
+  { $match: matchStage },
+  {
+    $group: {
+      _id: '$username',
+      totalAttempts: { $sum: 1 },
+      totalPasses: { $sum: { $cond: [{ $gte: ['$accuracy', PASS_ACCURACY] }, 1, 0] } },
+      avgScore: { $avg: '$accuracy' },
+    },
+  },
+  { $lookup: { from: 'users', localField: '_id', foreignField: 'username', as: 'user' } },
+  { $unwind: '$user' },
+  { $match: { 'user.role': 'student' } },
+  { $sort: { totalPasses: -1, avgScore: -1, totalAttempts: -1, _id: 1 } },
+  { $limit: LEADERBOARD_SIZE },
+];
+
+router.use(authenticateLeaderboard);
 
 router.get('/', async (req, res, next) => {
   try {
-    const rawUsername = req.leaderboardUsername;
-    if (typeof rawUsername !== 'string' || !rawUsername.trim()) {
-      return res.sendStatus(401);
-    }
-    const safeUsername = String(rawUsername).trim();
+    const authContext = await resolveAuthenticatedUser(req, res);
+    if (!authContext) return;
 
-    const match = { completedAt: { $ne: null } };
-
+    const matchStage = { completedAt: { $ne: null } };
     const rawClassCode = req.query?.classCode;
+
     if (rawClassCode !== undefined) {
-      if (typeof rawClassCode !== 'string' || !isValidClassCode(rawClassCode)) {
-        return res.status(400).json({ message: 'A valid class code is required.' });
-      }
-      const safeClassCode = String(rawClassCode).trim();
-
-      const user = await User.findOne({ username: { $eq: safeUsername } }).exec();
-      const cls = await Class.findOne({ classCode: { $eq: safeClassCode } }).exec();
-
-      if (!user || !cls || (cls.teacherId !== user.opid && !cls.students.includes(user.opid))) {
-        return res.status(403).json({ message: 'You are not in that class.' });
-      }
-
-      const members = await User.find({ opid: { $in: cls.students } })
-        .select('username')
-        .lean()
-        .exec();
-      match.username = { $in: members.map((member) => member.username) };
+      const usernameFilter = await getClassMemberFilter(rawClassCode, authContext.user, res);
+      if (!usernameFilter) return;
+      matchStage.username = usernameFilter;
     }
 
-    const rows = await Practice.aggregate([
-      { $match: match },
-      {
-        $group: {
-          _id: '$username',
-          attempts: { $sum: 1 },
-          passes: { $sum: { $cond: [{ $gte: ['$accuracy', PASS_ACCURACY] }, 1, 0] } },
-          averageAccuracy: { $avg: '$accuracy' },
-        },
-      },
-      { $lookup: { from: 'users', localField: '_id', foreignField: 'username', as: 'user' } },
-      { $unwind: '$user' },
-      { $match: { 'user.role': 'student' } },
-      { $sort: { passes: -1, averageAccuracy: -1, attempts: -1, _id: 1 } },
-      { $limit: LEADERBOARD_SIZE },
-    ]);
+    const rows = await Practice.aggregate(buildLeaderboardPipeline(matchStage));
 
     return res.json(
-      rows.map((row, i) => ({
-        place: i + 1,
+      rows.map((row, index) => ({
+        place: index + 1,
         username: row._id,
         rank: row.user.rank ?? 0,
-        passes: row.passes,
-        averageAccuracy: row.averageAccuracy,
-        attempts: row.attempts,
-        isYou: row._id === safeUsername,
+        passes: row.totalPasses,
+        averageAccuracy: row.avgScore,
+        attempts: row.totalAttempts,
+        isYou: row._id === authContext.safeUsername,
       }))
     );
   } catch (err) {
@@ -102,23 +125,16 @@ router.get('/', async (req, res, next) => {
 
 router.get('/classes', async (req, res, next) => {
   try {
-    const rawUsername = req.leaderboardUsername;
-    if (typeof rawUsername !== 'string' || !rawUsername.trim()) {
-      return res.sendStatus(401);
-    }
-    const safeUsername = String(rawUsername).trim();
+    const authContext = await resolveAuthenticatedUser(req, res);
+    if (!authContext) return;
 
-    const user = await User.findOne({ username: { $eq: safeUsername } }).exec();
-    if (!user) {
-      return res.status(404).json({ message: 'User not found!' });
-    }
-
-    const filter =
+    const { user } = authContext;
+    const classFilter =
       user.role === 'teacher'
         ? { teacherId: { $eq: user.opid } }
         : { students: { $eq: user.opid } };
 
-    const classes = await Class.find(filter).select('classCode className -_id').lean().exec();
+    const classes = await Class.find(classFilter).select('classCode className -_id').lean().exec();
     return res.json(classes);
   } catch (err) {
     return next(err);
