@@ -266,43 +266,46 @@ router.get('/history', withPracticeUser(async (req, res, safeUsername) => {
   );
 }));
 
-router.get('/stats', withPracticeUser(async (req, res, safeUsername) => {
-  const [stats] = await Practice.aggregate([
-    { $match: completedFilter(safeUsername) },
-    {
-      $group: {
-        _id: null,
-        attempts: { $sum: 1 },
-        averageAccuracy: { $avg: '$accuracy' },
-        bestAccuracy: { $max: '$accuracy' },
-        seconds: { $sum: { $sum: '$questions.elapsedSeconds' } },
-        timed: {
-          $sum: {
-            $size: {
-              $filter: { input: '$questions', cond: { $isNumber: '$$this.elapsedSeconds' } },
+router.get('/stats', async (req, res, next) => {
+  try {
+    const safeUsername = sanitizeUsername(req.practiceUsername);
+    const [stats] = await Practice.aggregate([
+      { $match: completedFilter(safeUsername) },
+      {
+        $group: {
+          _id: null,
+          attempts: { $sum: 1 },
+          averageAccuracy: { $avg: '$accuracy' },
+          bestAccuracy: { $max: '$accuracy' },
+          seconds: { $sum: { $sum: '$questions.elapsedSeconds' } },
+          timed: {
+            $sum: {
+              $size: {
+                $filter: { input: '$questions', cond: { $isNumber: '$$this.elapsedSeconds' } },
+              },
             },
           },
-        },
-        questions: { $sum: { $size: '$questions' } },
-        timeouts: {
-          $sum: {
-            $size: {
-              $filter: { input: '$questions', cond: '$$this.timedOut' } },
+          questions: { $sum: { $size: '$questions' } },
+          timeouts: {
+            $sum: {
+              $size: { $filter: { input: '$questions', cond: '$$this.timedOut' } },
             },
           },
         },
       },
-    },
-  ]);
+    ]);
 
-  return res.json({
-    attempts: stats?.attempts ?? 0,
-    averageAccuracy: stats?.averageAccuracy ?? null,
-    bestAccuracy: stats?.bestAccuracy ?? null,
-    averageSecondsPerQuestion: stats?.timed ? stats.seconds / stats.timed : null,
-    timeoutRate: stats?.questions ? stats.timeouts / stats.questions : null,
-  });
-}));
+    return res.json({
+      attempts: stats?.attempts ?? 0,
+      averageAccuracy: stats?.averageAccuracy ?? null,
+      bestAccuracy: stats?.bestAccuracy ?? null,
+      averageSecondsPerQuestion: stats?.timed ? stats.seconds / stats.timed : null,
+      timeoutRate: stats?.questions ? stats.timeouts / stats.questions : null,
+    });
+  } catch (err) {
+    return next(err);
+  }
+});
 
 router.use((err, req, res, next) => {
   if (res.headersSent) return next(err);
